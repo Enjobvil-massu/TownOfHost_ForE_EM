@@ -1,4 +1,7 @@
-# Town Of Host For E
+# Town Of Host For E EM
+
+TOH4Eをフォークして知り合いだけで遊べるようにしております。
+今現在は17.1.0のSteam版のみの対応まで完了しておりますが、公式サーバーを使用したときのアンチチート対策がされておりません。
 
 [![TownOfHost-Title](./Images/TownOfHost-Title.png)](https://www.youtube.com/channel/UCJDcUf0KOwLFGwVmj1m6Fag)
 
