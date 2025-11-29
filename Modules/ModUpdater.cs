@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Threading.Tasks;
 using HarmonyLib;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using static TownOfHostForE.Translator;
@@ -31,13 +32,24 @@ namespace TownOfHostForE
             InfoPopup = UnityEngine.Object.Instantiate(Twitch.TwitchManager.Instance.TwitchPopup);
             InfoPopup.name = "InfoPopup";
             InfoPopup.TextAreaTMP.GetComponent<RectTransform>().sizeDelta = new(2.5f, 2f);
+
             if (!isChecked)
             {
                 CheckRelease(Main.BetaBuildURL.Value != "").GetAwaiter().GetResult();
             }
+
+            // ✅ latestTitle が取れてない時にメニューUI側で落ちないよう防御
             MainMenuManagerPatch.UpdateButton.Button.gameObject.SetActive(hasUpdate);
-            MainMenuManagerPatch.UpdateButton.Button.transform.Find("FontPlacer/Text_TMP").GetComponent<TMPro.TMP_Text>().SetText($"{GetString("updateButton")}\n{latestTitle}");
+            var txt = MainMenuManagerPatch.UpdateButton.Button.transform
+                .Find("FontPlacer/Text_TMP")
+                .GetComponent<TMPro.TMP_Text>();
+
+            if (!string.IsNullOrEmpty(latestTitle))
+                txt.SetText($"{GetString("updateButton")}\n{latestTitle}");
+            else
+                txt.SetText($"{GetString("updateButton")}");
         }
+
         public static async Task<bool> CheckRelease(bool beta = false)
         {
             string url = beta ? Main.BetaBuildURL.Value : URL + "/releases/latest";
@@ -55,45 +67,72 @@ namespace TownOfHostForE
                     }
                     result = await response.Content.ReadAsStringAsync();
                 }
+
                 JObject data = JObject.Parse(result);
+
                 if (beta)
                 {
-                    latestTitle = data["name"].ToString();
-                    downloadUrl = data["url"].ToString();
+                    // ✅ null安全
+                    latestTitle = data.Value<string>("name") ?? "";
+                    downloadUrl  = data.Value<string>("url")  ?? "";
                     hasUpdate = latestTitle != ThisAssembly.Git.Commit;
                 }
                 else
                 {
-                    latestVersion = new(data["tag_name"]?.ToString().TrimStart('v'));
-                    //latestTitle = $"Ver. {latestVersion}";
-                    latestTitle = $"{data["name"].ToString().Replace("リリース","")}";
-                    JArray assets = data["assets"].Cast<JArray>();
+                    // ✅ tag_name が無いと Version ctor で落ちるので TryParse
+                    var tag = data.Value<string>("tag_name") ?? "";
+                    tag = tag.TrimStart('v');
+
+                    if (!Version.TryParse(tag, out latestVersion))
+                    {
+                        latestVersion = Main.version; // 取れなきゃ現行扱い
+                    }
+
+                    // ✅ name が無い場合も安全に
+                    latestTitle = (data.Value<string>("name") ?? "")
+                                    .Replace("リリース", "");
+
+                    // =========================
+                    // ★ ここが今回の本命修正
+                    // =========================
+                    // ❌ data["assets"].Cast<JArray>() は間違い
+                    // ✅ JToken -> JArray を安全に取得
+                    JArray assets = data["assets"] as JArray ?? new JArray();
 
                     for (int i = 0; i < assets.Count; i++)
                     {
-                        if (assets[i]["name"].ToString() == "TownOfHost_Steam.dll" && Constants.GetPlatformType() == Platforms.StandaloneSteamPC)
+                        var assetObj = assets[i] as JObject;
+                        if (assetObj == null) continue;
+
+                        string name = assetObj.Value<string>("name") ?? "";
+                        string bdu  = assetObj.Value<string>("browser_download_url") ?? "";
+
+                        if (name == "TownOfHost_Steam.dll" && Constants.GetPlatformType() == Platforms.StandaloneSteamPC)
                         {
-                            downloadUrl = assets[i]["browser_download_url"].ToString();
+                            downloadUrl = bdu;
                             break;
                         }
-                        if (assets[i]["name"].ToString() == "TownOfHost_Epic.dll" && Constants.GetPlatformType() == Platforms.StandaloneEpicPC)
+                        if (name == "TownOfHost_Epic.dll" && Constants.GetPlatformType() == Platforms.StandaloneEpicPC)
                         {
-                            downloadUrl = assets[i]["browser_download_url"].ToString();
+                            downloadUrl = bdu;
                             break;
                         }
-                        if (assets[i]["name"].ToString().Contains("TownOfHost_ForE") && assets[i]["name"].ToString().Contains(".dll"))
+                        if (name.Contains("TownOfHost_ForE") && name.Contains(".dll"))
                         {
-                            newFileName = assets[i]["name"].ToString();
-                            downloadUrl = assets[i]["browser_download_url"].ToString();
+                            newFileName = name;
+                            downloadUrl = bdu;
                         }
                     }
+
                     hasUpdate = latestVersion.CompareTo(Main.version) > 0;
                 }
-                if (downloadUrl == null)
+
+                if (string.IsNullOrEmpty(downloadUrl))
                 {
                     Logger.Error("ダウンロードURLを取得できませんでした。", "CheckRelease");
                     return false;
                 }
+
                 isChecked = true;
                 isBroken = false;
             }
@@ -103,24 +142,30 @@ namespace TownOfHostForE
                 Logger.Error($"リリースのチェックに失敗しました。\n{ex}", "CheckRelease", false);
                 return false;
             }
+
             return true;
         }
+
         public static void StartUpdate(string url)
         {
             ShowPopup(GetString("updatePleaseWait"));
+
             if (!BackupDLL())
             {
                 ShowPopup(GetString("updateManually"), true);
                 return;
             }
+
             _ = DownloadDLL(url);
             return;
         }
+
         public static bool BackupDLL()
         {
             try
             {
-                File.Move(Assembly.GetExecutingAssembly().Location, Assembly.GetExecutingAssembly().Location + ".bak");
+                File.Move(Assembly.GetExecutingAssembly().Location,
+                          Assembly.GetExecutingAssembly().Location + ".bak");
             }
             catch
             {
@@ -129,11 +174,13 @@ namespace TownOfHostForE
             }
             return true;
         }
+
         public static void DeleteOldDLL()
         {
             try
             {
-                foreach (var path in Directory.EnumerateFiles(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "*.bak"))
+                foreach (var path in Directory.EnumerateFiles(
+                             Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "*.bak"))
                 {
                     Logger.Info($"{Path.GetFileName(path)}を削除", "DeleteOldDLL");
                     File.Delete(path);
@@ -145,17 +192,21 @@ namespace TownOfHostForE
             }
             return;
         }
+
         public static async Task<bool> DownloadDLL(string url)
         {
             try
             {
                 using HttpClient client = new();
                 using var response = await client.GetAsync(url);
+
                 if (response.IsSuccessStatusCode)
                 {
                     using var content = response.Content;
-                    using var stream = content.ReadAsStream();
-                    using var file = new FileStream($"BepInEx/plugins/{newFileName}", FileMode.Create, FileAccess.Write);
+                    using var stream  = content.ReadAsStream();
+                    using var file    = new FileStream($"BepInEx/plugins/{newFileName}",
+                                                       FileMode.Create, FileAccess.Write);
+
                     stream.CopyTo(file);
                     ShowPopup(GetString("updateRestart"), true);
                     return true;
@@ -165,13 +216,16 @@ namespace TownOfHostForE
             {
                 Logger.Error($"ダウンロードに失敗しました。\n{ex}", "DownloadDLL", false);
             }
+
             ShowPopup(GetString("updateManually"), true);
             return false;
         }
+
         private static void DownloadCallBack(object sender, DownloadProgressChangedEventArgs e)
         {
             ShowPopup($"{GetString("updateInProgress")}\n{e.BytesReceived}/{e.TotalBytesToReceive}({e.ProgressPercentage}%)");
         }
+
         private static void ShowPopup(string message, bool showButton = false)
         {
             if (InfoPopup != null)

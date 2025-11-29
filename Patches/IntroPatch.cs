@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using UnityEngine;
+using System.Linq;
+using TownOfHostForE.Modules.Extensions;
 
 using TownOfHostForE.Roles.Core;
 using static TownOfHostForE.Translator;
@@ -154,7 +156,7 @@ namespace TownOfHostForE
                     case CustomRoleTypes.Madmate:
                         //if (!Options.CurrentGameMode.IsOneNightMode())
                             StartFadeIntro(__instance, Palette.CrewmateBlue, Palette.ImpostorRed);
-                        PlayerControl.LocalPlayer.Data.Role.IntroSound = RoleManager.Instance.AllRoles.Where((role) => role.Role == RoleTypes.Impostor).FirstOrDefault().IntroSound;
+                        PlayerControl.LocalPlayer.Data.Role.IntroSound = RoleManager.Instance.AllRoles.AsEnumerable().Where((role) => role.Role == RoleTypes.Impostor).FirstOrDefault().IntroSound;
                         break;
                 }
                 switch (role)

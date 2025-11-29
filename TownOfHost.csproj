@@ -15,13 +15,16 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
+
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
 		<DefineConstants>TRACE</DefineConstants>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Reference Include="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev\BepInEx\core\*.dll" />
-		<Reference Include="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev\BepInEx\interop\*.dll" />
+		<!-- ★あなたのAmong Us 17.1.0 + BepInEx 6 の場所に合わせた参照 -->
+		<Reference Include="D:\SteamGame\steamapps\common\Among Us\BepInEx\core\*.dll" />
+		<Reference Include="D:\SteamGame\steamapps\common\Among Us\BepInEx\interop\*.dll" />
+
 		<EmbeddedResource Include=".\Resources\*.png" />
 		<EmbeddedResource Include=".\Resources\string.csv" />
 		<EmbeddedResource Include=".\Resources\Sounds\**" />
@@ -38,22 +41,18 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+            <PackageReference Include="SharpDX" Version="4.2.0" />
+            <PackageReference Include="SharpDX.XAudio2" Version="4.2.0" />
 	</ItemGroup>
 
 	<ItemGroup>
 	  <Folder Include="Modules\YouTube\" />
 	</ItemGroup>
 
-	<ItemGroup>
-	  <Reference Include="SharpDX">
-	    <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\interop\SharpDX.dll</HintPath>
-	  </Reference>
-	  <Reference Include="SharpDX.XAudio2">
-	    <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\interop\SharpDX.XAudio2.dll</HintPath>
-	  </Reference>
-	</ItemGroup>
 
-	<Target Name="Copy" AfterTargets="Build" Condition="'C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev' != ''">
-		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev/BepInEx/plugins/" />
+	<!-- ★ビルド後に自動でAmong Usへコピー（必要なら有効のまま） -->
+	<Target Name="Copy" AfterTargets="Build" Condition="'D:\SteamGame\steamapps\common\Among Us' != ''">
+		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+		      DestinationFolder="D:\SteamGame\steamapps\common\Among Us\BepInEx\plugins\" />
 	</Target>
 </Project>

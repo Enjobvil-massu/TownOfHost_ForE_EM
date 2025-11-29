@@ -4,6 +4,9 @@ using UnityEngine;
 using Hazel;
 using AmongUs.GameOptions;
 using static TownOfHostForE.Translator;
+using System.Linq;
+using TownOfHostForE.Modules.Extensions;
+
 
 namespace TownOfHostForE.Roles.Core;
 
@@ -403,7 +406,7 @@ public abstract class RoleBase : IDisposable
     }
 
     protected static AudioClip GetIntroSound(RoleTypes roleType) =>
-        RoleManager.Instance.AllRoles.Where((role) => role.Role == roleType).FirstOrDefault().IntroSound;
+        RoleManager.Instance.AllRoles.AsEnumerable().Where((role) => role.Role == roleType).FirstOrDefault().IntroSound;
 
     protected enum GeneralOption
     {

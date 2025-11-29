@@ -2,6 +2,8 @@ using System.Linq;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using UnityEngine;
+using System.Linq;
+using TownOfHostForE.Modules.Extensions;
 
 using TownOfHostForE.Roles.Core;
 
@@ -33,7 +35,7 @@ namespace TownOfHostForE
             float maxHeight = 0f;
             if (CustomRolesFolder != null && CustomRolesFolder.FolderName == taskFolder.FolderName)
             {
-                var crewBehaviour = DestroyableSingleton<RoleManager>.Instance.AllRoles.Where(role => role.Role == RoleTypes.Crewmate).FirstOrDefault();
+                var crewBehaviour = DestroyableSingleton<RoleManager>.Instance.AllRoles.AsEnumerable().Where(role => role.Role == RoleTypes.Crewmate).FirstOrDefault();
                 foreach (var cRole in CustomRolesHelper.AllRoles)
                 {
                     /*if(cRole == CustomRoles.Crewmate ||

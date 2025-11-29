@@ -1,5 +1,12 @@
+# ビルド成果物
 bin/
 obj/
-bin/
-FodyWeavers.xsd
-/.vs/
+
+# ゲーム依存 DLL（自分の環境だけに置く）
+dll/
+lib/
+
+# VS 用
+.vs/
+*.user
+*.suo

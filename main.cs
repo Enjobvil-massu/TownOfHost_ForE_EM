@@ -9,7 +9,7 @@ using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
-
+using AmongUs.GameOptions;
 using TownOfHostForE.Attributes;
 using TownOfHostForE.Roles.Core;
 using TownOfHostForE.Modules;
@@ -27,7 +27,7 @@ namespace TownOfHostForE
     {
         // == プログラム設定 / Program Config ==
         // modの名前 / Mod Name (Default: Town Of Host)
-        public static readonly string ModName = "Town Of Host ForE";
+        public static readonly string ModName = "Town Of Host ForE EM";
         // modの色 / Mod Color (Default: #00bfff)
         public static readonly string ModColor = "#18e744";
         // 公開ルームを許可する / Allow Public Room (Default: true)
@@ -52,9 +52,9 @@ namespace TownOfHostForE
 
         // ==========
         //Sorry for many Japanese comments.
-        public const string PluginGuid = "com.AsumuAkaguma.townofhostfore";
+        public const string PluginGuid = "com.enjobmassu.townofhostforeem";
         public const string PluginVersion = "5113.5.0.0";
-        public const string PleviewPluginVersion = "Degrade";
+        public const string PleviewPluginVersion = "1.0.0.0";
         // サポートされている最低のAmongUsバージョン
         public static readonly string LowestSupportedVersion = "2025.04.20";
         // このバージョンのみで公開ルームを無効にする場合
@@ -88,8 +88,8 @@ namespace TownOfHostForE
         public static string ExceptionMessage;
         public static bool ExceptionMessageIsShown = false;
         public static string credentialsText;
-        public static NormalGameOptionsV09 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
-        public static HideNSeekGameOptionsV09 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
+        public static NormalGameOptionsV10 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
+        public static HideNSeekGameOptionsV10 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
         //Client Options
         public static ConfigEntry<string> HideName { get; private set; }
         public static ConfigEntry<string> HideColor { get; private set; }
