@@ -66,6 +66,10 @@ public sealed class Sniper : RoleBase, IImpostor
     bool AimAssistOneshot;
 
     bool MeetingReset;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal int RoleBugTraceBulletCount => BulletCount;
+    internal bool RoleBugTraceMeetingReset => MeetingReset;
     bool MashSaboReset;
     public static void SetupOptionItem()
     {

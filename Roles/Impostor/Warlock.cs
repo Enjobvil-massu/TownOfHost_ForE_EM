@@ -37,6 +37,9 @@ public sealed class Warlock : RoleBase, IImpostor
     PlayerControl CursedPlayer;
     bool IsCursed;
     bool Shapeshifting;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal bool RoleBugTraceShapeshifting => Shapeshifting;
     public override void Add()
     {
         CursedPlayer = null;

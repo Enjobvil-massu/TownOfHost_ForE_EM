@@ -148,6 +148,21 @@ namespace TownOfHostForE
                         }
                     }
                 }
+                // GOD_HIGHEST_PRIORITY_WIN_PERMANENT: 全役職・全陣営・タスク勝利の処理後に神だけへ最終上書き
+                // GOD_DRAW_GUARD_PERMANENT: 廃村Drawだけは神の通常勝利上書き対象外
+                if (CustomWinnerHolder.WinnerTeam != CustomWinner.Draw
+                    && God.CheckWin())
+                {
+                    CustomWinnerHolder.ResetAndSetWinner(CustomWinner.God);
+                    foreach (var god in Main.AllAlivePlayerControls)
+                    {
+                        // GOD_WINNER_LIST_ELIGIBILITY_PERMANENT: タスク必須時は完了した生存神だけを勝者へ追加
+                        if (God.IsWinEligible(god))
+                        {
+                            CustomWinnerHolder.WinnerIds.Add(god.PlayerId);
+                        }
+                    }
+                }
                 ShipStatus.Instance.enabled = false;
                 StartEndGame(reason);
                 predicate = null;
@@ -406,6 +421,8 @@ namespace TownOfHostForE
         {
             reason = GameOverReason.ImpostorsByKill;
             if (ShipStatus.Instance.Systems == null) return false;
+            // TOHK v51.14.32.51参考 PERMANENT: TOH4Eの会議遷移状態に合わせてサボ勝利判定を止める
+            if (GameStates.IsMeeting || !GameStates.IsInTask) return false;
 
             // TryGetValueは使用不可
             var systems = ShipStatus.Instance.Systems;

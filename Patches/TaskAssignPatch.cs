@@ -4,6 +4,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 using TownOfHostForE.Roles.Core;
+using TownOfHostForE.Roles.Crewmate;
 using TownOfHostForE.Roles.AddOns.Crewmate;
 
 namespace TownOfHostForE
@@ -56,6 +57,30 @@ namespace TownOfHostForE
             CustomRoles? RoleNullable = pc?.GetCustomRole();
             if (RoleNullable == null) return;
             CustomRoles role = RoleNullable.Value;
+
+            // HAMBURGER_SHOP_TASK_ASSIGN_PERMANENT: AirshipのMakeBurger実タスクをバニラ参加者へ配布
+            if (role == CustomRoles.HamburgerShop)
+            {
+                int taskCount = HamburgerShop.GetAssignedTaskCount(taskTypeIds.Count);
+                if (!HamburgerShop.TryGetMakeBurgerTaskId(out var makeBurgerTaskId))
+                {
+                    Logger.Warn(
+                        "HamburgerShop: MakeBurgerタスクを取得できなかったため、元のタスク配布を維持します。",
+                        "RpcSetTasksPatch");
+                    return;
+                }
+
+                taskTypeIds = new Il2CppStructArray<byte>(taskCount);
+                for (int i = 0; i < taskCount; i++)
+                {
+                    taskTypeIds[i] = makeBurgerTaskId;
+                }
+
+                Logger.Info(
+                    $"HamburgerShop: MakeBurgerタスクを{taskCount}件配布します。",
+                    "RpcSetTasksPatch");
+                return;
+            }
 
             //デフォルトのタスク数
             bool hasCommonTasks = true;

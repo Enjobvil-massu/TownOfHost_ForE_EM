@@ -35,7 +35,7 @@ namespace TownOfHostForE
             };
             foreach (var line in CsvReader.ReadFromStream(stream, options))
             {
-                if (line.Values[0][0] == '#') continue;
+                if (line.ColumnCount == 0 || string.IsNullOrWhiteSpace(line.Values[0]) || line.Values[0][0] == '#') continue;
                 try
                 {
                     Dictionary<int, string> dic = new();

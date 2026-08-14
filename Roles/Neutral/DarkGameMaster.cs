@@ -78,6 +78,9 @@ namespace TownOfHostForE.Roles.Neutral
 
         private int deathGamePlayerCount = 0;
         private int deathGameFesCount = 0;
+        // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+        // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+        internal int RoleBugTraceDeathGameFesCount => deathGameFesCount;
 
         public float CurrentKillCooldown = 30;
 

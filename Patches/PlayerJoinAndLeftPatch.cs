@@ -96,6 +96,11 @@ namespace TownOfHostForE
     {
         static void Prefix([HarmonyArgument(0)] ClientData data)
         {
+            // ONPLAYERLEFT_PREFIX_NULL_GUARD_PERMANENT:
+            // OnPlayerLeftはロビー再接続/切断整理時にCharacter未生成のClientDataでも呼ばれ得る。
+            // Characterが存在する通常退出時のExecutioner/Lawyer処理は従来どおり維持する。
+            if (data == null || data.Character == null) return;
+
             if (CustomRoles.Executioner.IsPresent())
                 Executioner.ChangeRoleByTarget(data.Character.PlayerId);
             if (CustomRoles.Lawyer.IsPresent())
@@ -114,7 +119,7 @@ namespace TownOfHostForE
                 }
                 else if (data.Character == null)
                 {
-                    isFailure = true;
+                    isFailure = !(GameStates.IsLobby && reason == DisconnectReasons.DuplicateConnectionDetected);
                     Logger.Warn("退出者のPlayerControlがnull", nameof(OnPlayerLeftPatch));
                 }
                 else if (data.Character.Data == null)

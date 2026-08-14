@@ -275,7 +275,7 @@ namespace TownOfHostForE
             if (!InitFinished) return "";
             if (VoiceReaderMode == null || !VoiceReaderMode.GetBool()) return "";
             StringBuilder sb = new();
-            sb.Append($"声の設定（書式 /vo [No])\n[No一覧]\n");
+            sb.Append($"声の設定（書式 /cmd vo [No])\n[No一覧]\n");
             foreach (var voiceNo in VoiceName.Keys.ToArray())
             {
                 sb.Append($"{voiceNo}: {VoiceName[voiceNo]}\n");

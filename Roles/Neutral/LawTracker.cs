@@ -41,6 +41,9 @@ public sealed class LawTracker : RoleBase
     private static int PursuerGuardNum;
 
     private int GuardCount = 0;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal int RoleBugTraceGuardCount => GuardCount;
 
     public override void Add()
     {

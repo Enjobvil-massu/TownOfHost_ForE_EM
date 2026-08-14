@@ -22,6 +22,7 @@ using TownOfHostForE.Roles.AddOns.Crewmate;
 using TownOfHostForE.Roles.AddOns.Impostor;
 using TownOfHostForE.Roles.AddOns.NotCrew;
 using TownOfHostForE.Roles.Core;
+using TownOfHostForE.Roles.Core.Descriptions;
 using TownOfHostForE.Roles.Core.Interfaces;
 using TownOfHostForE.Roles.Crewmate;
 using TownOfHostForE.Roles.Impostor;
@@ -424,6 +425,42 @@ namespace TownOfHostForE
             return hexColor;
         }
 
+        // ROLE_HELP_BOTTOM_PADDING_PERMANENT: 最下段クリッピング防止用の描画行
+        public const string RoleHelpRichBottomPadding = "\n<color=#00000000>.</color>";
+        public const string RoleHelpNetworkBottomPadding = "\n\u3164";
+
+        public static string AppendRoleHelpRichBottomPadding(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.EndsWith(RoleHelpRichBottomPadding))
+                return text;
+            return text + RoleHelpRichBottomPadding;
+        }
+
+        public static string AppendRoleHelpNetworkBottomPadding(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.EndsWith(RoleHelpNetworkBottomPadding))
+                return text;
+            return text + RoleHelpNetworkBottomPadding;
+        }
+
+        // CMD_MYROLE_ADDON_DESC_PERMANENT: /cmd m と既存役職案内で共通利用する付随役職説明
+        public static string GetSubRoleInfo(PlayerControl player)
+        {
+            if (!GameStates.IsInGame) return "";
+
+            var sb = new StringBuilder();
+            foreach (var subRole in player.GetCustomSubRoles())
+            {
+                if (subRole != CustomRoles.NotAssigned)
+                {
+                    var roleName = subRole.ToString();
+                    sb.Append("\n--------------------------------------------------------\n")
+                        .Append(GetString(roleName)).Append(GetString($"{roleName}InfoLong"));
+                }
+            }
+            return sb.ToString();
+        }
+
         public static string GetMyRoleInfo(PlayerControl player)
         {
             if (!GameStates.IsInGame) return null;
@@ -435,16 +472,7 @@ namespace TownOfHostForE
             //if (player.GetCustomRole() == CustomRoles.Lawyer && ((Lawyer)player.GetRoleClass()).IsPursuer())
             //    roleString = "Pursuer";
             sb.Append(GetString(roleString)).Append(player.GetRoleInfo(true));
-
-            foreach (var subRole in player.GetCustomSubRoles())
-            {
-                if (subRole != CustomRoles.NotAssigned)
-                {
-                    var RoleName = subRole.ToString();
-                    sb.Append("\n--------------------------------------------------------\n")
-                        .Append(GetString(RoleName)).Append(GetString($"{RoleName}InfoLong"));
-                }
-            }
+            sb.Append(GetSubRoleInfo(player));
             return sb.ToString();
         }
 
@@ -659,13 +687,13 @@ namespace TownOfHostForE
             if (Options.CurrentGameMode == CustomGameMode.HideAndSeek)
             {
                 SendMessage(GetString("HideAndSeekInfo"), PlayerId);
-                if (CustomRoles.HASFox.IsEnable()) { SendMessage(GetRoleName(CustomRoles.HASFox) + GetString("HASFoxInfoLong"), PlayerId); }
-                if (CustomRoles.HASTroll.IsEnable()) { SendMessage(GetRoleName(CustomRoles.HASTroll) + GetString("HASTrollInfoLong"), PlayerId); }
+                if (CustomRoles.HASFox.IsEnable()) { SendMessage(AppendRoleHelpNetworkBottomPadding(GetRoleName(CustomRoles.HASFox) + GetString("HASFoxInfoLong")), PlayerId); }
+                if (CustomRoles.HASTroll.IsEnable()) { SendMessage(AppendRoleHelpNetworkBottomPadding(GetRoleName(CustomRoles.HASTroll) + GetString("HASTrollInfoLong")), PlayerId); }
             }
             else if (Options.CurrentGameMode == CustomGameMode.SuperBombParty)
             {
                 SendMessage(GetString("SBPInfo"), PlayerId);
-                if (CustomRoles.BAKURETSUKI.IsEnable()) { SendMessage(GetRoleName(CustomRoles.BAKURETSUKI) + GetString("BAKURETSUKIInfoLong"), PlayerId); }
+                if (CustomRoles.BAKURETSUKI.IsEnable()) { SendMessage(AppendRoleHelpNetworkBottomPadding(GetRoleName(CustomRoles.BAKURETSUKI) + GetString("BAKURETSUKIInfoLong")), PlayerId); }
             }
             else
             {
@@ -674,7 +702,7 @@ namespace TownOfHostForE
                 if (Options.SabotageTimeControl.GetBool()) { SendMessage(GetString("SabotageTimeControlInfo"), PlayerId); }
                 if (Options.RandomMapsMode.GetBool()) { SendMessage(GetString("RandomMapsModeInfo"), PlayerId); }
                 if (Options.IsStandardHAS) { SendMessage(GetString("StandardHASInfo"), PlayerId); }
-                if (Options.EnableGM.GetBool()) { SendMessage(GetRoleName(CustomRoles.GM) + GetString("GMInfoLong"), PlayerId); }
+                if (Options.EnableGM.GetBool()) { SendMessage(AppendRoleHelpNetworkBottomPadding(GetRoleName(CustomRoles.GM) + GetString("GMInfoLong")), PlayerId); }
                 if(RoleAssignManager.AssignMode == RoleAssignManager.AssignAlgorithm.Random)
                 {
                     SendMessage("アサインモード：ランダム\n【設定人数】\nインポスター：" + RoleAssignManager.RandomAssignOptionsCollection[CustomRoleTypes.Impostor].Min + "～" + RoleAssignManager.RandomAssignOptionsCollection[CustomRoleTypes.Impostor].Max +
@@ -689,12 +717,12 @@ namespace TownOfHostForE
                     {
                         if (role.GetRoleInfo()?.Description is { } description)
                         {
-                            SendMessage(description.FullFormatHelp, PlayerId, removeTags: false);
+                            SendRoleHelpMessage(description, PlayerId);
                         }
                         // RoleInfoがない役職は従来処理
                         else
                         {
-                            SendMessage(GetRoleName(role) + GetString(Enum.GetName(typeof(CustomRoles), role) + "InfoLong"), PlayerId);
+                            SendMessage(AppendRoleHelpNetworkBottomPadding(GetRoleName(role) + GetString(Enum.GetName(typeof(CustomRoles), role) + "InfoLong")), PlayerId);
                         }
                     }
                 }
@@ -958,27 +986,65 @@ namespace TownOfHostForE
             return sb.ToString();
         }
 
-        public static void ShowHelp()
+        public static void ShowHelp(byte sendTo = byte.MaxValue)
         {
             SendMessage(
                 GetString("CommandList")
-                + $"\n/winner - {GetString("Command.winner")}"
-                + $"\n/lastresult - {GetString("Command.lastresult")}"
-                + $"\n/rename - {GetString("Command.rename")}"
-                + $"\n/now - {GetString("Command.now")}"
-                + $"\n/h now - {GetString("Command.h_now")}"
-                + $"\n/h roles {GetString("Command.h_roles")}"
-                + $"\n/h addons {GetString("Command.h_addons")}"
-                + $"\n/h modes {GetString("Command.h_modes")}"
-                + $"\n/dump - {GetString("Command.dump")}"
-                );
+                + $"\n/cmd n - {GetString("Command.now")}"
+                + $"\n/cmd h n - {GetString("Command.h_now")}"
+                + $"\n/cmd l - {GetString("Command.lastresult")}"
+                + $"\n/cmd h r {GetString("Command.h_roles")}"
+                + $"\n/cmd h a {GetString("Command.h_addons")}"
+                + $"\n/cmd h m {GetString("Command.h_modes")}"
+                + $"\n/cmd win - {GetString("Command.winner")}"
+                + $"\n/cmd r - {GetString("Command.rename")}"
+                + $"\n/cmd dump - {GetString("Command.dump")}"
+                , sendTo: sendTo);
+        }
+        public static void ShowParticipantHelp(byte sendTo)
+        {
+            SendMessage(
+                GetString("CommandList")
+                + "\n/cmd n - " + GetString("Command.now")
+                + "\n/cmd n r - " + GetString("Command.now_roles")
+                + "\n/cmd h n - " + GetString("Command.h_now")
+                + "\n/cmd l - " + GetString("Command.lastresult")
+                + "\n/cmd kl - " + GetString("Command.killlog")
+                + "\n/cmd m - " + GetString("Command.myrole")
+                + "\n/cmd t {tag} - " + GetString("Command.template")
+                + "\n/cmd vo [No|n] - " + GetString("Command.voice")
+                + "\n/cmd h b - " + GetString("Command.bethelp")
+                , sendTo: sendTo);
         }
         public static void SendMessage(string text, byte sendTo = byte.MaxValue, string title = "", bool removeTags = true)
+            => EnqueueSystemMessage(text, sendTo, title, removeTags, SystemMessageKind.NormalMessage);
+
+        public static void SendRoleHelpMessage(RoleDescription description, byte sendTo = byte.MaxValue, string title = "")
+            => EnqueueSystemMessage(
+                AppendRoleHelpRichBottomPadding(description.FullFormatHelp),
+                sendTo,
+                title,
+                false,
+                SystemMessageKind.RoleHelp,
+                description.NetworkHelpSections);
+
+        private static void EnqueueSystemMessage(
+            string text,
+            byte sendTo,
+            string title,
+            bool removeTags,
+            SystemMessageKind messageKind,
+            RoleHelpSections? roleHelpSections = null)
         {
             if (!AmongUsClient.Instance.AmHost) return;
             if (title == "") title = "<color=#aaaaff>" + GetString("DefaultSystemMessageTitle") + "</color>";
             if (Options.GetWordLimitMode() != WordLimit.regulation.None) WordLimit.nowSafeWords.Add(text);
-            Main.MessagesToSend.Add((removeTags ? text.RemoveHtmlTags() : text, sendTo, title));
+            Main.MessagesToSend.Add((
+                removeTags ? text.RemoveHtmlTags() : text,
+                sendTo,
+                title,
+                messageKind,
+                roleHelpSections));
         }
         public static void ApplySuffix()
         {
@@ -1002,7 +1068,7 @@ namespace TownOfHostForE
             else
             {
                 if (AmongUsClient.Instance.IsGamePublic)
-                    name = $"<color={Main.ModColor}>TownOfHost_ForE v{Main.PleviewPluginVersion}</color>\r\n" + name;
+                    name = $"{Main.ModNameRichText} v{Main.PleviewPluginVersion}\r\n" + name;
 
                 if (BetWinTeams.BetWinTeamMode.GetBool() && BetWinTeams.BetPoint.ContainsKey(PlayerControl.LocalPlayer.FriendCode) && !BetWinTeams.DisableShogo.GetBool())
                 {
@@ -1034,7 +1100,61 @@ namespace TownOfHostForE
                 }
             }
             if (name != PlayerControl.LocalPlayer.name && PlayerControl.LocalPlayer.CurrentOutfitType == PlayerOutfitType.Default) PlayerControl.LocalPlayer.RpcSetName(name);
+
+            // VANILLA_HOST_MOD_VERSION_DISPLAY_LOBBY_PERMANENT:
+            // MODなし参加者にはAmong Us標準SetNameを個別送信し、
+            // ロビー中のホスト名にMOD名・表示Versionを追加する。
+            // Version handshake済み端末には送らず、既存の役職名/名前同期を変更しない。
+            ApplyVanillaHostModVersionDisplay(name);
         }
+
+        private static void ApplyVanillaHostModVersionDisplay(string? hostName = null, PlayerControl? seer = null, bool force = false)
+        {
+            if (!AmongUsClient.Instance.AmHost || !GameStates.IsLobby || AmongUsClient.Instance.IsGameStarted) return;
+
+            var host = PlayerControl.LocalPlayer;
+            if (host == null || host.Data == null) return;
+
+            hostName ??= host.name;
+            if (string.IsNullOrEmpty(hostName) || hostName == "Player(Clone)") return;
+
+            string displayName = hostName;
+
+            // 公開ルームでは従来ApplySuffixが既にMOD名+Versionを先頭へ付けるため重複させない。
+            if (!AmongUsClient.Instance.IsGamePublic)
+            {
+                displayName = "<line-height=-100%>\n<b></line-height>" + hostName + $"\n<line-height=-200%>\n<size=60%><line-height=0%>{Main.ModNameRichText} <color=#ffffff>v{Main.PleviewPluginVersion}</color><line-height=100%></size>\n<size=0> ";
+            }
+
+            void SendTo(PlayerControl targetSeer)
+            {
+                if (targetSeer == null || targetSeer.Data == null || targetSeer.AmOwner) return;
+                if (targetSeer.name == "Player(Clone)") return;
+
+                // playerVersionに登録済みなら何らかのMOD handshake済み。
+                // バニラ専用表示は送信しない。
+                if (Main.playerVersion.ContainsKey(targetSeer.PlayerId)) return;
+
+                host.RpcSetNamePrivate(displayName, true, targetSeer, force);
+            }
+
+            if (seer != null)
+            {
+                SendTo(seer);
+                return;
+            }
+
+            foreach (var targetSeer in Main.AllPlayerControls)
+            {
+                SendTo(targetSeer);
+            }
+        }
+
+        public static void ReapplyVanillaHostModVersionDisplayAfterSystemMessage()
+        {
+            ApplyVanillaHostModVersionDisplay(force: true);
+        }
+
         private static Dictionary<byte, PlayerControl> cachedPlayers = new(15);
         public static PlayerControl GetPlayerById(int playerId) => GetPlayerById((byte)playerId);
         public static PlayerControl GetPlayerById(byte playerId)
@@ -1214,6 +1334,12 @@ namespace TownOfHostForE
                     || (Options.CurrentGameMode == CustomGameMode.SuperBombParty && SuperBakuretsuBros.SBPHideName.GetBool()) //SBP中且つ名前を隠すときのみ通す。
                     || NoCache
                     || ForceLoop
+                    // VANILLA_HOST_MOD_VERSION_MEETING_FORCE_VANILLA_LOOP_PERMANENT:
+                    // 会議用MOD情報を役職に依存せず全バニラ端末へ送れるよう、
+                    // isForMeeting時の完全バニラseerだけ第二ループを有効化する。
+                    || (isForMeeting &&
+                        seer != PlayerControl.LocalPlayer &&
+                        !Main.playerVersion.ContainsKey(seer.PlayerId))
                     || (CustomRoles.Workaholic.IsEnable() && Workaholic.Seen)
                     || CustomRoles.Rainbow.IsEnable()
                     || (seer.Is(CustomRoles.FortuneTeller) && ((FortuneTeller)seer.GetRoleClass()).HasForecastResult())
@@ -1350,7 +1476,10 @@ namespace TownOfHostForE
         /// </summary>
         public static void JoinLobbyModInfo(ClientData client)
         {
-            SendMessage("TOH4Eへようこそ！\n本部屋ではTownOfHostForEというModを導入して遊んでおります。\n現在AmongUsでは公開ルームでのMod利用が出来ません。<color=#FF0000>公開ルームからのMod部屋への誘導もおやめください。</color>\nもし誘導や勧誘などを確認した場合はスクリーンショットと合わせて開発者まで問い合わせをお願い致します。", client.Character.PlayerId, $"<color={Main.ModColor}>TownOfHost ForE</color>へようこそ！",false);
+            SendMessage($"TOH4Eへようこそ！\n本部屋ではTownOfHostForEというModを導入して遊んでおります。\n現在AmongUsでは公開ルームでのMod利用が出来ません。<color=#FF0000>公開ルームからのMod部屋への誘導もおやめください。</color>\nもし誘導や勧誘などを確認した場合はスクリーンショットと合わせて開発者まで問い合わせをお願い致します。\n\n{GetString("Message.JoinCommandListGuide")}", client.Character.PlayerId, $"<color={Main.ModColor}>TownOfHost ForE</color>へようこそ！",false);
+
+            // CreatePlayer側の既存3秒遅延後なのでVersion handshakeの判定時間を確保済み。
+            ApplyVanillaHostModVersionDisplay(seer: client.Character, force: true);
         }
 
         /// <summary>
@@ -1401,8 +1530,19 @@ namespace TownOfHostForE
         }
         public static void AfterMeetingTasks()
         {
-            foreach (var roleClass in CustomRoleManager.AllActiveRoles.Values)
-                roleClass.AfterMeetingTasks();
+            var skipRoleAfterMeetingTasks = Options.FirstTurnMeetingInProgress;
+            Options.FirstTurnMeetingInProgress = false;
+
+            if (!skipRoleAfterMeetingTasks)
+            {
+                foreach (var roleClass in CustomRoleManager.AllActiveRoles.Values)
+                    roleClass.AfterMeetingTasks();
+            }
+            else
+            {
+                Logger.Info("ゲーム開始直後の強制会議のため役職のAfterMeetingTasksを実行しません。", "FirstTurnMeeting");
+            }
+
             if (Options.AirShipVariableElectrical.GetBool())
                 AirShipElectricalDoors.Initialize();
             DoorsReset.ResetDoors();

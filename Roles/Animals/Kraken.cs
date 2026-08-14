@@ -58,6 +58,11 @@ namespace TownOfHostForE.Roles.Animals
         private bool setShokusyuTarget = false;
         private int killCount = 0;
         private static int killNum = 0;
+        // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+        // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+        internal int RoleBugTraceKillCount => killCount;
+        internal bool RoleBugTraceHasShokushuTarget => setShokusyuTarget;
+        internal byte RoleBugTraceTargetId => targetId;
 
         enum OptionName
         {

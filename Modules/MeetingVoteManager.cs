@@ -18,6 +18,109 @@ public class MeetingVoteManager
     private static MeetingVoteManager _instance;
     private static LogHandler logger = Logger.Handler(nameof(MeetingVoteManager));
 
+    // VANILLA_ACTUAL_EXILE_ATOMIC_DEAD_GHOST_AB_V3_4:
+    // Actual exileを既存の推測stateから再構成せず、実際に送信完了した
+    // VotingCompleteだけをH4 causal A/Bの対象にするbehavior-neutral ledger。
+    internal readonly struct H4ActualExileLedger
+    {
+        internal H4ActualExileLedger(
+            uint meetingGeneration,
+            byte actualExiledPlayerId,
+            int targetClientId,
+            bool realVotingCompleteDelivered,
+            bool isTie,
+            string path)
+        {
+            MeetingGeneration = meetingGeneration;
+            ActualExiledPlayerId = actualExiledPlayerId;
+            TargetClientId = targetClientId;
+            RealVotingCompleteDelivered = realVotingCompleteDelivered;
+            IsTie = isTie;
+            Path = path;
+        }
+
+        internal uint MeetingGeneration { get; }
+        internal byte ActualExiledPlayerId { get; }
+        internal int TargetClientId { get; }
+        internal bool RealVotingCompleteDelivered { get; }
+        internal bool IsTie { get; }
+        internal string Path { get; }
+    }
+
+    private static uint h4MeetingGeneration;
+    private static H4ActualExileLedger h4ActualExileLedger = new(
+        0,
+        byte.MaxValue,
+        -1,
+        false,
+        false,
+        "NONE");
+
+    internal static uint H4MeetingGeneration => h4MeetingGeneration;
+
+    private static void H4BeginMeeting()
+    {
+        h4MeetingGeneration = h4MeetingGeneration == uint.MaxValue
+            ? 1u
+            : h4MeetingGeneration + 1u;
+        h4ActualExileLedger = new(
+            h4MeetingGeneration,
+            byte.MaxValue,
+            -1,
+            false,
+            false,
+            "MEETING_STARTED");
+        ExileControllerWrapUpPatch.VanillaActualExileAtomicDeadGhostAbV34.ResetForMeeting(
+            h4MeetingGeneration);
+    }
+
+    private static void H4RecordActualExile(
+        NetworkedPlayerInfo? exiled,
+        bool isTie,
+        string path)
+    {
+        var playerId = exiled?.PlayerId ?? byte.MaxValue;
+        var clientId = exiled?.Object == null ? -1 : exiled.Object.GetClientId();
+        h4ActualExileLedger = new(
+            h4MeetingGeneration,
+            playerId,
+            clientId,
+            false,
+            isTie,
+            path);
+
+        Logger.Info(
+            $"Stage=LEDGER_CAPTURE | MeetingGeneration={h4MeetingGeneration} | PlayerId={playerId} | ClientId={clientId} | Delivered=False | Tie={isTie} | Path={path}",
+            "VANILLA_ACTUAL_EXILE_ATOMIC_DEAD_GHOST_AB_V3_4");
+    }
+
+    private static void H4MarkRealVotingCompleteDelivered(byte playerId, int clientId)
+    {
+        if (h4ActualExileLedger.MeetingGeneration != h4MeetingGeneration ||
+            h4ActualExileLedger.ActualExiledPlayerId != playerId ||
+            h4ActualExileLedger.TargetClientId != clientId ||
+            h4ActualExileLedger.IsTie)
+            return;
+
+        h4ActualExileLedger = new(
+            h4ActualExileLedger.MeetingGeneration,
+            h4ActualExileLedger.ActualExiledPlayerId,
+            h4ActualExileLedger.TargetClientId,
+            true,
+            h4ActualExileLedger.IsTie,
+            h4ActualExileLedger.Path);
+
+        Logger.Info(
+            $"Stage=LEDGER_CAPTURE | MeetingGeneration={h4MeetingGeneration} | PlayerId={playerId} | ClientId={clientId} | Delivered=True | Tie=False | Path={h4ActualExileLedger.Path}",
+            "VANILLA_ACTUAL_EXILE_ATOMIC_DEAD_GHOST_AB_V3_4");
+    }
+
+    internal static bool H4TryGetActualExileLedger(out H4ActualExileLedger ledger)
+    {
+        ledger = h4ActualExileLedger;
+        return ledger.MeetingGeneration == h4MeetingGeneration;
+    }
+
     private MeetingVoteManager()
     {
         meetingHud = MeetingHud.Instance;
@@ -27,6 +130,7 @@ public class MeetingVoteManager
     public static void Start()
     {
         _instance = new();
+        H4BeginMeeting();
     }
 
     /// <summary>
@@ -61,7 +165,7 @@ public class MeetingVoteManager
     /// <param name="voteFor">投票先</param>
     /// <param name="numVotes">票数</param>
     /// <param name="isIntentional">投票者自身の投票操作による自発的な投票かどうか</param>
-    public void SetVote(byte voter, byte voteFor, int numVotes = 1, bool isIntentional = true)
+    public void SetVote(byte voter, byte voteFor, int numVotes = 1, bool isIntentional = true, bool applyRoleEffects = true)
     {
         if (!allVotes.TryGetValue(voter, out var vote))
         {
@@ -72,6 +176,15 @@ public class MeetingVoteManager
         {
             logger.Info($"ID: {voter}の投票を上書きします");
         }
+        if (!applyRoleEffects)
+        {
+            logger.Info($"ID: {voter}の投票を役職能力なしで{GetVoteName(voteFor)}として記録します");
+            vote.DoVote(voteFor, numVotes);
+            // ROLEBUGTRACE_STAGE1B_PERMANENT
+            RoleBugTrace.Vote(voter, voteFor, numVotes, true, "NoRoleEffects");
+            return;
+        }
+
         var voterPc = Utils.GetPlayerById(voter);
 
         bool doVote = true;
@@ -107,6 +220,12 @@ public class MeetingVoteManager
         if (doVote)
         {
             vote.DoVote(voteFor, numVotes);
+            // ROLEBUGTRACE_STAGE1B_PERMANENT
+            RoleBugTrace.Vote(voter, voteFor, numVotes, true, "RoleEffectsApplied");
+        }
+        else
+        {
+            RoleBugTrace.Vote(voter, voteFor, numVotes, false, "CanceledByRole");
         }
     }
     /// <summary>
@@ -114,6 +233,17 @@ public class MeetingVoteManager
     /// </summary>
     public void CheckAndEndMeeting()
     {
+        // SCALES_PORT_PERMANENT: 天秤会議だけ専用投票時間で終了判定する
+        if (Scales.TryGetSpecialMeetingTime(out var scalesVotingTime))
+        {
+            if (meetingHud.discussionTimer >= scalesVotingTime
+                || AllVotes.Values.All(vote => vote.HasVoted))
+            {
+                EndMeeting();
+            }
+            return;
+        }
+
         if (meetingHud.discussionTimer - (float)Main.NormalOptions.DiscussionTime >= Main.NormalOptions.VotingTime || AllVotes.Values.All(vote => vote.HasVoted))
         {
             EndMeeting();
@@ -125,6 +255,13 @@ public class MeetingVoteManager
     /// <param name="applyVoteMode">スキップと同数投票の設定を適用するかどうか</param>
     public void EndMeeting(bool applyVoteMode = true, byte antiCompId = byte.MaxValue)
     {
+        // SCALES_PORT_PERMANENT: 天秤専用会議は通常の同数・勝敗上書きを通さず専用集計する
+        if (Scales.TryEndSpecialMeeting(this, meetingHud))
+        {
+            Destroy();
+            return;
+        }
+
         var result = CountVotes(applyVoteMode);
         //Y-anti
         var exiled = (antiCompId == byte.MaxValue) ? result.Exiled : Utils.GetPlayerInfoById(antiCompId);
@@ -153,18 +290,142 @@ public class MeetingVoteManager
 
         if (AntiBlackout.OverrideExiledPlayer)
         {
-            meetingHud.RpcVotingComplete(states.ToArray(), null, true);
             ExileControllerWrapUpPatch.AntiBlackout_LastExiled = exiled;
+
+            // ExileDisplayRealPermanent:
+            // 4-15人かつ実追放あり、さらに全viewer x targetの正確な
+            // RoleView復元値が揃った場合だけ非ホストへreal VotingCompleteを送る。
+            if (exiled != null &&
+                !result.IsTie &&
+                AntiBlackout.TryPrepareRealExileDisplayPermanent(exiled))
+            {
+                H4RecordActualExile(exiled, false, "PREPARED_REAL_TARGETED");
+                var stateArray = states.ToArray();
+                var targetedClientCount = 0;
+
+                foreach (var player in Main.AllPlayerControls)
+                {
+                    if (player == null ||
+                        player.Data == null ||
+                        player.Data.Disconnected ||
+                        player.AmOwner)
+                        continue;
+
+                    // TOHKのv17.4系送信形式と同じく、
+                    // VoterState.SerializeをCustomRpcSender.streamへ直接書く。
+                    var sender = CustomRpcSender.Create(
+                        "ExileDisplayRealPermanent VotingComplete",
+                        Hazel.SendOption.Reliable
+                    );
+
+                    sender.StartMessage(player.GetClientId());
+                    sender.StartRpc(meetingHud.NetId, RpcCalls.VotingComplete)
+                        .WritePacked(stateArray.Length);
+
+                    foreach (var voterState in stateArray)
+                    {
+                        voterState.Serialize(sender.stream);
+                    }
+
+                    sender.Write(exiled.PlayerId);
+                    sender.Write(false);
+                    sender.EndRpc();
+                    sender.SendMessage();
+                    if (player.PlayerId == exiled.PlayerId)
+                    {
+                        H4MarkRealVotingCompleteDelivered(
+                            player.PlayerId,
+                            player.GetClientId());
+                    }
+                    targetedClientCount++;
+                }
+
+                // ホスト自身は従来AntiBlackoutのnull/tie状態を維持する。
+                // ホストの表示だけは既存ExileControllerBeginDisplayRestorePermanentPatchが
+                // AntiBlackout_LastExiledから実追放者へ差し戻す。
+                meetingHud.VotingComplete(stateArray, null, true);
+
+                Logger.Info(
+                    $"Real VotingComplete targeted | Exiled={exiled.PlayerId} | Clients={targetedClientCount}",
+                    "ExileDisplayRealPermanent"
+                );
+            }
+            else
+            {
+                // VANILLA_ACTUAL_EXILE_3P_FALLBACK_SAFE_ROLE_AB_V6
+                // 3人・実追放・remote Vanilla本人だけsafe RoleTypeを準備する。
+                // VotingCompleteは従来どおり null/tie のまま。PREPARED_REAL_TARGETEDへは入れない。
+                if (exiled != null &&
+                    !result.IsTie &&
+                    exiled.Object is { } exiledObject &&
+                    !exiledObject.AmOwner &&
+                    !exiledObject.IsModClient() &&
+                    AntiBlackout.TryPrepareThreePlayerFallbackExileSafetyAbV6(exiled))
+                {
+                    Logger.Info(
+                        $"Stage=FALLBACK_SAFETY_PREPARED | Exiled={exiled.PlayerId} | ClientId={exiledObject.GetClientId()} | " +
+                        "VotingComplete=null/tie",
+                        "VANILLA_ACTUAL_EXILE_3P_FALLBACK_SAFE_ROLE_AB_V6");
+                }
+
+                H4RecordActualExile(exiled, result.IsTie, "ANTIBLACKOUT_FALLBACK");
+
+                // FIRST_TURN_SKIP_DISPLAY_AB_V1:
+                // 初手強制会議では実投票を全てSkipへ変換しているため、
+                // AntiBlackout fallbackのcarrierはnullのまま維持しつつ、
+                // tieだけfalseとしてVanilla標準のSkip表示を使用する。
+                // 通常追放・本当の同票・通常Skip・H4/V14Aには影響させない。
+                var firstTurnForcedSkipDisplay =
+                    MeetingStates.FirstMeeting &&
+                    Options.IsFirstTurnMeetingAbilityBlocked &&
+                    exiled == null &&
+                    !result.IsTie;
+
+                // OFFICIAL_SKIP_DISPLAY_AB_V1:
+                // AntiBlackout fallbackでも、追放者なし・真の同票ではない場合は
+                // Vanilla公式のSkip結果としてtie=falseを送る。
+                // 実追放fallbackと本当の同票は従来どおりtie=trueを維持する。
+                var officialSkipDisplay =
+                    exiled == null &&
+                    !result.IsTie;
+
+                meetingHud.RpcVotingComplete(
+                    states.ToArray(),
+                    null,
+                    !officialSkipDisplay);
+
+                if (firstTurnForcedSkipDisplay)
+                {
+                    Logger.Info(
+                        "VotingComplete=null/false | Native skip display selected",
+                        "FirstTurnSkipDisplayABV1");
+                }
+
+                if (officialSkipDisplay && !firstTurnForcedSkipDisplay)
+                {
+                    Logger.Info(
+                        "VotingComplete=null/false | Native normal-skip display selected",
+                        "OfficialSkipDisplayABV1");
+                }
+            }
         }
         else
         {
+            H4RecordActualExile(exiled, result.IsTie, "NORMAL_BROADCAST");
             meetingHud.RpcVotingComplete(states.ToArray(), exiled, result.IsTie);
+            if (exiled?.Object != null &&
+                !exiled.Object.AmOwner &&
+                !result.IsTie)
+            {
+                H4MarkRealVotingCompleteDelivered(
+                    exiled.PlayerId,
+                    exiled.Object.GetClientId());
+            }
         }
         if (exiled != null)
         {
             MeetingHudPatch.CheckForDeathOnExile(CustomDeathReason.Vote, exiled.PlayerId);
         }
-        var exiledPc = Utils.GetPlayerById(exiled.PlayerId);
 
         Destroy();
     }
@@ -209,6 +470,12 @@ public class MeetingVoteManager
     /// </summary>
     private void ApplySkipAndNoVoteMode()
     {
+        if (Options.FirstTurnMeetingInProgress)
+        {
+            logger.Info("ゲーム開始直後の強制会議のためスキップ・無投票モードを適用しません");
+            return;
+        }
+
         var ignoreSkipModeDueToFirstMeeting = MeetingStates.FirstMeeting && Options.WhenSkipVoteIgnoreFirstMeeting.GetBool();
         var ignoreSkipModeDueToNoDeadBody = !MeetingStates.IsExistDeadBody && Options.WhenSkipVoteIgnoreNoDeadBody.GetBool();
         var ignoreSkipModeDueToEmergency = MeetingStates.IsEmergencyMeeting && Options.WhenSkipVoteIgnoreEmergency.GetBool();

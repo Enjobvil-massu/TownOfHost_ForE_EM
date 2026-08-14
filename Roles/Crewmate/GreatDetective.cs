@@ -57,6 +57,11 @@ public sealed class GreatDetective : RoleBase
 
     private static OptionItem SuiriCount;
     private int suiriCount;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal byte RoleBugTraceTargetId => TargetId;
+    internal string RoleBugTraceTargetState => nowTargetState.ToString();
+    internal int RoleBugTraceSuiriCount => suiriCount;
     private static OptionItem ReportTime;
     private int reportTime;
     private static OptionItem WatchGdPower;

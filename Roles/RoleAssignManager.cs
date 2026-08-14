@@ -335,8 +335,11 @@ namespace TownOfHostForE.Roles
         }
         private static RoleAssignInfo GetRoleAssignInfo(this CustomRoles role) =>
             CustomRoleManager.GetRoleInfo(role)?.AssignInfo;
+        // FACTION_COUNT_SEMANTICS_PERMANENT: Tunaだけ設定に応じてNeutral/Animals割当枠を切り替える
         private static CustomRoleTypes GetAssignRoleType(this CustomRoles role) =>
-            role.GetRoleAssignInfo()?.AssignRoleType ?? role.GetCustomRoleTypes();
+            role == CustomRoles.Tuna
+                ? (TownOfHostForE.Roles.Neutral.Tuna.TunaTypeAnimals ? CustomRoleTypes.Animals : CustomRoleTypes.Neutral)
+                : role.GetRoleAssignInfo()?.AssignRoleType ?? role.GetCustomRoleTypes();
         private static bool IsAssignable(this CustomRoles role)
             => role.GetRoleAssignInfo()?.IsInitiallyAssignable ?? true;
         /// <summary>

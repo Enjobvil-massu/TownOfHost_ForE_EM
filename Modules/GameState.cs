@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using AmongUs.GameOptions;
@@ -70,6 +70,13 @@ namespace TownOfHostForE
         }
         public void SetMainRole(CustomRoles role)
         {
+            // GOD_GAMBLER_MAINROLE_TRANSITION_PERMANENT: Gambler保持済みプレイヤーがGod化しても共存させない
+            if (role == CustomRoles.God)
+            {
+                SubRoles.Remove(CustomRoles.Gambler);
+                TownOfHostForE.Roles.AddOns.NotCrew.Gambler.Remove(PlayerId);
+            }
+
             MainRole = role;
 
             CountType = CustomRoleManager.GetRoleInfo(role) is SimpleRoleInfo roleInfo ?
@@ -85,6 +92,8 @@ namespace TownOfHostForE
         }
         public void SetSubRole(CustomRoles role, bool AllReplace = false)
         {
+            // GOD_GAMBLER_SUBROLE_GUARD_PERMANENT: 神にはギャンブラーを登録しない
+            if (MainRole == CustomRoles.God && role == CustomRoles.Gambler) return;
             if (AllReplace)
                 SubRoles.ToArray().Do(role => SubRoles.Remove(role));
 
@@ -164,6 +173,7 @@ namespace TownOfHostForE
         {
             Logger.Info($"{player.GetNameWithRole()}: InitTask", "TaskState.Init");
             if (player == null || player.Data == null || player.Data.Tasks == null) return;
+
             if (!Utils.HasTasks(player.Data, false))
             {
                 AllTasksCount = 0;

@@ -136,7 +136,7 @@ namespace TownOfHostForE
                     if (!canStartGame)
                     {
                         __instance.StartButton.gameObject.SetActive(false);
-                        warningMessage = Utils.ColorString(Color.red, string.Format(GetString("Warning.MismatchedVersion"), String.Join(" ", mismatchedPlayerNameList), $"<color={Main.ModColor}>{Main.ModName}</color>"));
+                        warningMessage = Utils.ColorString(Color.red, string.Format(GetString("Warning.MismatchedVersion"), String.Join(" ", mismatchedPlayerNameList), Main.ModNameRichText));
                         ChatCommands.ResetVersionCheckFlag = true;
                     }
                     if (AmongUsClient.Instance.AmHost && ChatCommands.StartButtonReset)
@@ -160,7 +160,7 @@ namespace TownOfHostForE
                             SceneChanger.ChangeScene("MainMenu");
                         }
 
-                        warningMessage = Utils.ColorString(Color.red, string.Format(GetString("Warning.AutoExitAtMismatchedVersion"), $"<color={Main.ModColor}>{Main.ModName}</color>", Math.Round(10 - exitTimer).ToString()));
+                        warningMessage = Utils.ColorString(Color.red, string.Format(GetString("Warning.AutoExitAtMismatchedVersion"), Main.ModNameRichText, Math.Round(10 - exitTimer).ToString()));
                     }
                 }
                 if (warningMessage == "")
@@ -194,7 +194,7 @@ namespace TownOfHostForE
                 if (!Main.playerVersion.TryGetValue(playerId, out var version)) return acceptVanilla;
                 return Main.ForkId == version.forkId
                     && Main.version.CompareTo(version.version) == 0
-                    && version.tag == $"{ThisAssembly.Git.Commit}({ThisAssembly.Git.Branch})";
+                    && version.tag == RPC.CurrentVersionTag;
             }
         }
 

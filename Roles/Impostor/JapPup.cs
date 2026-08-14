@@ -128,13 +128,28 @@ namespace TownOfHostForE.Roles.Impostor
                     target.RpcProtectedMurderPlayer();
 
                     //指定秒後にキルしてないと死ぬ
+                    var targetPlayerId = target.PlayerId;
                     new LateTask(() =>
                     {
                         if (!killedFlag && GameStates.IsInTask)
                         {
-                            var targetControl = Utils.GetPlayerById(target.PlayerId);
+                            // JAPPUP_LIFECYCLE_GUARD_PERMANENT: 待機中の切断・対象消失だけを局所保護
+                            var targetControl = Utils.GetPlayerById(targetPlayerId);
+                            if (targetControl == null
+                                || targetControl.Data == null
+                                || targetControl.Data.Disconnected)
+                            {
+                                RemoveShapeTarget(targetPlayerId);
+                                Utils.MarkEveryoneDirtySettings();
+                                Utils.NotifyRoles();
+                                Logger.Warn(
+                                    $"自爆待機中に対象が切断・消失したため処理を中止: PlayerId={targetPlayerId}",
+                                    "JapPup");
+                                return;
+                            }
+
                             targetControl.RpcMurderPlayer(targetControl);
-                            RemoveShapeTarget(target.PlayerId);
+                            RemoveShapeTarget(targetPlayerId);
                             Utils.MarkEveryoneDirtySettings();
                             Utils.NotifyRoles();
                             Logger.Info("指定時間でキルできなかったため自爆","JapPup");
@@ -152,8 +167,9 @@ namespace TownOfHostForE.Roles.Impostor
 
         public override void OnShapeshift(PlayerControl target)
         {
-            var shapeshifting = !Is(target);
+            // JAPPUP_LIFECYCLE_GUARD_PERMANENT: RoleBase.Is(PlayerControl)より先にnullを除外
             if (target == null) return;
+            var shapeshifting = !Is(target);
             ResetFlag(true);
             //変身中
             if (shapeshifting)
@@ -192,8 +208,11 @@ namespace TownOfHostForE.Roles.Impostor
             TargetId = byte.MaxValue;
             if (AmongUsClient.Instance.AmHost)
             {
-                using var sender = CreateSender(CustomRPC.SetCinderellaTarget);
+                // JAPPUP_LIFECYCLE_GUARD_PERMANENT: JapPup専用RPCへ統一し、既存固定payload契約(op+2byte)を満たす
+                using var sender = CreateSender(CustomRPC.JapPupkillTargetSync);
                 sender.Writer.Write((byte)TargetOperation.RemoveTarget);
+                sender.Writer.Write(byte.MaxValue);
+                sender.Writer.Write(byte.MaxValue);
             }
         }
         private void SetTarget(byte targetId,byte killTargetId)
@@ -261,8 +280,13 @@ namespace TownOfHostForE.Roles.Impostor
 
             if (seer.PlayerId != seen.PlayerId) return "";
             var shapeTargetId = japPupTarget[seer.PlayerId];
+            // JAPPUP_LIFECYCLE_GUARD_PERMANENT: 表示対象の切断・消失時だけ空表示
+            var shapeTargetControl = Utils.GetPlayerById(shapeTargetId);
+            if (shapeTargetControl == null
+                || shapeTargetControl.Data == null
+                || shapeTargetControl.Data.Disconnected) return "";
 
-            string targetSet = "\n" + Utils.GetPlayerById(shapeTargetId).name + "をやれ：" + TargetArrow.GetArrows(seer, shapeTargetId);
+            string targetSet = "\n" + shapeTargetControl.name + "をやれ：" + TargetArrow.GetArrows(seer, shapeTargetId);
 
             //キラー自身がseenのとき
             return Utils.ColorString(RoleInfo.RoleColor, targetSet);
@@ -276,34 +300,37 @@ namespace TownOfHostForE.Roles.Impostor
             //ターゲットが入っていないなら実行しない
             if (japPupTarget.Count <= 0) return;
 
-            foreach (var japPupData in japPupTarget)
+            // JAPPUP_LIFECYCLE_GUARD_PERMANENT: 削除可能なためDictionaryのスナップショットを列挙
+            foreach (var japPupData in new List<KeyValuePair<byte, byte>>(japPupTarget))
             {
                 byte targetId = japPupData.Key;
                 byte shapeTarget = japPupData.Value;
 
-                Vector3 targetPos = Vector3.zero;
-                Vector3 shapeTargetPos = Vector3.zero;
-                var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
-
-                foreach (var target in Main.AllPlayerControls)
+                var targetControl = Utils.GetPlayerById(targetId);
+                if (targetControl == null
+                    || targetControl.Data == null
+                    || targetControl.Data.Disconnected)
                 {
-                    if (target.PlayerId == targetId)
-                    {
-                        targetPos = target.transform.position;
-                    }
-                    else if (target.PlayerId == shapeTarget)
-                    {
-                        shapeTargetPos = target.transform.position;
-                    }
+                    RemoveShapeTarget(targetId);
+                    continue;
                 }
 
-                float targetDistance = Vector2.Distance(targetPos, shapeTargetPos);
+                var shapeTargetControl = Utils.GetPlayerById(shapeTarget);
+                if (shapeTargetControl == null
+                    || shapeTargetControl.Data == null
+                    || shapeTargetControl.Data.Disconnected)
+                {
+                    // 指定対象が不在でも割当と自爆タイマーは従来どおり維持する
+                    continue;
+                }
+
+                var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
+                float targetDistance = Vector2.Distance(
+                    targetControl.transform.position,
+                    shapeTargetControl.transform.position);
 
                 if (targetDistance <= KillRange)
                 {
-                    var targetControl = Utils.GetPlayerById(targetId);
-                    var shapeTargetControl = Utils.GetPlayerById(shapeTarget);
-
                     shapeTargetControl.SetRealKiller(targetControl);
                     targetControl.RpcMurderPlayer(shapeTargetControl);
                     killedFlag = true;

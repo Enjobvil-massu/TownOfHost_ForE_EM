@@ -62,6 +62,11 @@ namespace TownOfHostForE.Modules.OtherServices
 
         public PostBlueSky()
         {
+            if (Main.EnableBlueSkyPost == null || !Main.EnableBlueSkyPost.Value)
+            {
+                return;
+            }
+
             this.SetUserInfo();
             this._postMessage = this.ReadPostData();
         }

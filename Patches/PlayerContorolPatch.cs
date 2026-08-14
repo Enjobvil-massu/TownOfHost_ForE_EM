@@ -17,7 +17,6 @@ using TownOfHostForE.Roles.AddOns.Crewmate;
 using TownOfHostForE.Roles.Impostor;
 using TownOfHostForE.Roles.Crewmate;
 using TownOfHostForE.GameMode;
-using TownOfHostForE.Modules.OtherServices.YouTube;
 
 namespace TownOfHostForE
 {
@@ -61,6 +60,8 @@ namespace TownOfHostForE
         public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
         {
             if (!AmongUsClient.Instance.AmHost) return false;
+            // ROLEBUGTRACE_STAGE1A_PERMANENT
+            RoleBugTrace.KillAttempt(__instance, target);
 
             // 処理は全てCustomRoleManager側で行う
             if (!CustomRoleManager.OnCheckMurder(__instance, target))
@@ -108,6 +109,12 @@ namespace TownOfHostForE
                 Logger.Info("会議が始まっていたため、キルをキャンセルしました。", "CheckMurder");
                 return false;
             }
+            // ゲーム開始直後の強制会議前はキルを禁止
+            if (Options.IsFirstTurnMeetingActive)
+            {
+                Logger.Info($"{killer.GetNameWithRole()}が強制会議前にキルしようとしたためキャンセルしました。", "CheckMurder");
+                return false;
+            }
 
             // 連打キルでないか
             float minTime = Mathf.Max(0.02f, AmongUsClient.Instance.Ping / 1000f * 6f); //※AmongUsClient.Instance.Pingの値はミリ秒(ms)なので÷1000
@@ -127,7 +134,10 @@ namespace TownOfHostForE
                 return false;
             }
             // キルが可能なプレイヤーか(遠隔は除く)
-            if (!info.IsFakeSuicide && !killer.CanUseKillButton())
+            // ULTRASTAR_CONTACT_KILL_PERMANENT: キルボタンを持たない接触キルだけを許可
+            if (!info.IsFakeSuicide
+                && !killer.CanUseKillButton()
+                && !killer.Is(CustomRoles.UltraStar))
             {
                 Logger.Info(killer.GetNameWithRole() + "はKillできないので、キルはキャンセルされました。", "CheckMurder");
                 return false;
@@ -183,6 +193,8 @@ namespace TownOfHostForE
             var isProtectedByHost = resultFlags.HasFlag(MurderResultFlags.FailedProtected);
             var isFailed = resultFlags.HasFlag(MurderResultFlags.FailedError);
             var isSucceeded = __state = !isProtectedByClient && !isProtectedByHost && !isFailed;
+            // ROLEBUGTRACE_STAGE1A_PERMANENT
+            RoleBugTrace.KillResult(__instance, target, isSucceeded, resultFlags.ToString());
             if (isProtectedByClient)
             {
                 logger.Info("守護されているため，キルは失敗します");
@@ -237,6 +249,8 @@ namespace TownOfHostForE
 
             var shapeshifter = __instance;
             var shapeshifting = shapeshifter.PlayerId != target.PlayerId;
+            // ROLEBUGTRACE_STAGE1B_PERMANENT: generic validity gates passed
+            RoleBugTrace.ShapeshiftAttempt(shapeshifter, target);
             // 変身したとき一番近い人をマッドメイトにする処理
             if (shapeshifter.CanMakeMadmate() && shapeshifting)
             {
@@ -339,9 +353,14 @@ namespace TownOfHostForE
 
             Main.CheckShapeshift[shapeshifter.PlayerId] = shapeshifting;
             Main.ShapeshiftTarget[shapeshifter.PlayerId] = target.PlayerId;
+            // ROLEBUGTRACE_STAGE1B_PERMANENT: duplicate state guard passed
+            RoleBugTrace.Shapeshift(shapeshifter, target, shapeshifting);
 
             shapeshifter.GetRoleClass()?.OnShapeshift(target);
             GreatDetective.TargetOnShapeShifft(shapeshifter, shapeshifting);
+            // ROLEBUGTRACE_SHAPESHIFT_AFTER_PERMANENT_CALL
+            // 役職OnShapeshift等の適用後stateを中央診断へ記録する。
+            RoleBugTrace.ShapeshiftAfter(shapeshifter, target, shapeshifting);
 
             if (!AmongUsClient.Instance.AmHost) return;
 
@@ -369,9 +388,14 @@ namespace TownOfHostForE
         public static Dictionary<byte, List<NetworkedPlayerInfo>> WaitReport = new();
         public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] NetworkedPlayerInfo target)
         {
+            if (GameStates.IsMeeting) return false;
+            if (Options.IsFirstTurnMeetingActive)
+            {
+                Logger.Info($"{__instance.GetNameWithRole()}の通報をゲーム開始直後の強制会議前のためキャンセルしました。", "ReportDeadBody");
+                return false;
+            }
             reporter = __instance.Data;
             ReportTarget = target;
-            if (GameStates.IsMeeting) return false;
             Logger.Info($"{__instance.GetNameWithRole()} => {target?.Object?.GetNameWithRole() ?? "null"}", "ReportDeadBody");
             if (Options.IsStandardHAS && target != null && __instance == target.Object) return true; //[StandardHAS] ボタンでなく、通報者と死体が同じなら許可
             if (Options.CurrentGameMode == CustomGameMode.HideAndSeek || Options.IsStandardHAS) return false;
@@ -441,6 +465,8 @@ namespace TownOfHostForE
             Utils.SyncAllSettings();
 
             if (ShapeKiller.DummyReportDeadBody(__instance, target)) return false;
+            // ROLEBUGTRACE_STAGE1A_PERMANENT: all report cancellation gates have passed
+            RoleBugTrace.Report(__instance, target?.Object, target == null);
             return true;
         }
         public static async void ChangeLocalNameAndRevert(string name, int time)
@@ -481,7 +507,6 @@ namespace TownOfHostForE
 
             if (AmongUsClient.Instance.AmHost)
             {
-                YouTubeReader.FixedUpdatePatch();
                 //実行クライアントがホストの場合のみ実行
                 if (GameStates.IsLobby && (ModUpdater.hasUpdate || ModUpdater.isBroken || !Main.AllowPublicRoom || !VersionChecker.IsSupported || !Main.IsPublicAvailableOnThisVersion) && AmongUsClient.Instance.IsGamePublic)
                     AmongUsClient.Instance.ChangeGamePublic(false);
@@ -537,7 +562,7 @@ namespace TownOfHostForE
                         if (Main.ForkId != ver.forkId) // フォークIDが違う場合
                             __instance.cosmetics.nameText.text = $"<color=#ff0000><size=1.2>{ver.forkId}</size>\n{__instance?.name}</color>";
                         else if (Main.version.CompareTo(ver.version) == 0)
-                            __instance.cosmetics.nameText.text = ver.tag == $"{ThisAssembly.Git.Commit}({ThisAssembly.Git.Branch})" ? $"<color=#87cefa>{__instance.name}</color>" : $"<color=#ffff00><size=1.2>{ver.tag}</size>\n{__instance?.name}</color>";
+                            __instance.cosmetics.nameText.text = ver.tag == RPC.CurrentVersionTag ? $"<color=#87cefa>{__instance.name}</color>" : $"<color=#ffff00><size=1.2>{ver.tag}</size>\n{__instance?.name}</color>";
                         else __instance.cosmetics.nameText.text = $"<color=#ff0000><size=1.2>v{ver.version}</size>\n{__instance?.name}</color>";
                     }
                     else __instance.cosmetics.nameText.text = __instance?.Data?.PlayerName;
@@ -752,6 +777,17 @@ namespace TownOfHostForE
 
                 bool onEnterVentResult = user.GetCustomRole().IsNotAssignRoles() ? false : (!user.GetRoleClass()?.OnEnterVent(__instance, id) ?? false);
 
+                var forceBootByMode = Options.CurrentGameMode == CustomGameMode.HideAndSeek && Options.IgnoreVent.GetBool()
+                    || Options.CurrentGameMode == CustomGameMode.SuperBombParty;
+                var blockedByRoleOrBase = onEnterVentResult ||
+                    (user.Data.Role.Role != RoleTypes.Engineer && !user.CanUseImpostorVentButton());
+                // ROLEBUGTRACE_STAGE1B_PERMANENT: current source has no central ExitVent hook
+                RoleBugTrace.VentEnter(
+                    user,
+                    id,
+                    !(forceBootByMode || blockedByRoleOrBase),
+                    forceBootByMode ? "GameMode" : (blockedByRoleOrBase ? "RoleOrBasePermission" : "Allowed"));
+
                 if (onEnterVentResult ||
                     (user.Data.Role.Role != RoleTypes.Engineer && //エンジニアでなく
                     !user.CanUseImpostorVentButton()) //インポスターベントも使えない
@@ -788,6 +824,7 @@ namespace TownOfHostForE
 
             Logger.Info($"TaskComplete:{pc.GetNameWithRole()}", "CompleteTask");
             var taskState = pc.GetPlayerTaskState();
+
             taskState.Update(pc);
 
             var roleClass = pc.GetRoleClass();
@@ -800,6 +837,8 @@ namespace TownOfHostForE
             ret &= Workhorse.OnCompleteTask(pc);
 
             Utils.NotifyRoles();
+            // ROLEBUGTRACE_STAGE1A_PERMANENT
+            RoleBugTrace.Task(pc, ret, taskState.CompletedTasksCount, taskState.AllTasksCount);
             return ret;
         }
         public static void Postfix()
@@ -843,28 +882,85 @@ namespace TownOfHostForE
                     var self = seer.PlayerId == target.PlayerId;
                     var seerIsKiller = seer.GetRoleClass() is IKiller;
 
-                    if ((self && targetIsKiller) || (!seerIsKiller && target.Is(CustomRoleTypes.Impostor)))
+                    var viewerGhostRole =
+                        (self && targetIsKiller) || (!seerIsKiller && target.Is(CustomRoleTypes.Impostor))
+                            ? RoleTypes.ImpostorGhost
+                            : RoleTypes.CrewmateGhost;
+
+                    // HOST_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V2:
+                    // 4-15人real-targeted実追放中のMODホスト追放だけを対象にする。
+                    // remote VanillaだけImpostorGhostをCrewmateGhostへ安全化する。
+                    // 通常死亡・MOD viewer・Vanilla本人追放(V14A)には影響させない。
+                    if (viewerGhostRole == RoleTypes.ImpostorGhost &&
+                        AmongUsClient.Instance.AmHost &&
+                        AntiBlackout.IsRealExileDisplaySafetyAppliedPermanent &&
+                        target.AmOwner &&
+                        seer.PlayerId != target.PlayerId &&
+                        !seer.AmOwner &&
+                        !seer.IsModClient() &&
+                        MeetingVoteManager.H4TryGetActualExileLedger(out var actualExileLedger) &&
+                        // A/B v2: ホスト追放ではtargeted VotingComplete送信ループからownerが除外されるため
+                        // RealVotingCompleteDeliveredは構造上falseのまま。SafetyApplied + PREPARED_REAL_TARGETEDで限定する。
+                        actualExileLedger.Path == "PREPARED_REAL_TARGETED" &&
+                        !actualExileLedger.IsTie &&
+                        actualExileLedger.ActualExiledPlayerId == target.PlayerId)
                     {
-                        ghostRoles[seer] = RoleTypes.ImpostorGhost;
+                        Logger.Info(
+                            $"Stage=REMOTE_VANILLA_HOST_EXILE_GHOST_GUARD | TargetId={target.PlayerId} | ViewerId={seer.PlayerId} | ViewerClientId={seer.GetClientId()} | Intended=ImpostorGhost | Applied=CrewmateGhost",
+                            "HOST_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V2");
+
+                        viewerGhostRole = RoleTypes.CrewmateGhost;
                     }
-                    else
-                    {
-                        ghostRoles[seer] = RoleTypes.CrewmateGhost;
-                    }
+
+                    ghostRoles[seer] = viewerGhostRole;
                 }
                 if (ghostRoles.All(kvp => kvp.Value == RoleTypes.CrewmateGhost))
                 {
                     roleType = RoleTypes.CrewmateGhost;
+
+                    // ExileDisplayRealPermanent:
+                    // broadcastされる同一Ghost Roleを全viewerの保持RoleViewへ反映する。
+                    foreach (var seer in Main.AllPlayerControls)
+                    {
+                        SelectRolesPatch.UpdateExileDisplayRoleViewPermanent(
+                            seer.PlayerId,
+                            target.PlayerId,
+                            roleType);
+                    }
                 }
                 else if (ghostRoles.All(kvp => kvp.Value == RoleTypes.ImpostorGhost))
                 {
                     roleType = RoleTypes.ImpostorGhost;
+
+                    // ExileDisplayRealPermanent:
+                    foreach (var seer in Main.AllPlayerControls)
+                    {
+                        SelectRolesPatch.UpdateExileDisplayRoleViewPermanent(
+                            seer.PlayerId,
+                            target.PlayerId,
+                            roleType);
+                    }
                 }
                 else
                 {
                     foreach ((var seer, var role) in ghostRoles)
                     {
                         Logger.Info($"Desync {targetName} =>{role} for{seer.GetNameWithRole()}", "PlayerControl.RpcSetRole");
+                        var h4PreparedFirstSelfHold =
+                            ExileControllerWrapUpPatch.VanillaActualExileAtomicDeadGhostAbV34
+                                .TryPrepareFirstSelfGhostHold(target, seer, role);
+                        // ExileDisplayRealPermanent:
+                        // viewerごとに異なるGhost Roleを正確に保持する。
+                        SelectRolesPatch.UpdateExileDisplayRoleViewPermanent(
+                            seer.PlayerId,
+                            target.PlayerId,
+                            role);
+                        if (h4PreparedFirstSelfHold &&
+                            ExileControllerWrapUpPatch.VanillaActualExileAtomicDeadGhostAbV34
+                                .TryCommitFirstSelfGhostHold())
+                        {
+                            continue;
+                        }
                         target.RpcSetRoleDesync(role, seer.GetClientId());
                     }
                     return false;

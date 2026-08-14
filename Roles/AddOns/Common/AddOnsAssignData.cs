@@ -21,6 +21,9 @@ namespace TownOfHostForE.Roles.AddOns.Common
         OptionItem NeutralMaximum;
         OptionItem NeutralFixedRole;
         OptionItem NeutralAssignTarget;
+        // GOD_GAMBLER_ASSIGNMENT_GUARD_PERMANENT
+        // GOD_GAMBLER_ASSIGNMENT_NULLABILITY_FIX_PERMANENT: 第三陣営設定作成時に初期化される候補一覧
+        CustomRoles[] NeutralAssignableRoles = null!;
         OptionItem AnimalsMaximum;
         OptionItem AnimalsFixedRole;
         OptionItem AnimalsAssignTarget;
@@ -77,7 +80,10 @@ namespace TownOfHostForE.Roles.AddOns.Common
                 NeutralMaximum.ReplacementDictionary = new Dictionary<string, string> { { "%roleTypes%", Utils.ColorString(Palette.AcceptedGreen, GetString("Neutral")) } };
                 NeutralFixedRole = BooleanOptionItem.Create(idStart++, "FixedRole", false, TabGroup.Addons, false)
                     .SetParent(NeutralMaximum);
-                var neutralStringsArray = NeutralRoles.Select(role => role.ToString()).ToArray();
+                NeutralAssignableRoles = role == CustomRoles.Gambler
+                    ? NeutralRoles.Where(neutralRole => neutralRole != CustomRoles.God).ToArray()
+                    : NeutralRoles;
+                var neutralStringsArray = NeutralAssignableRoles.Select(neutralRole => neutralRole.ToString()).ToArray();
                 NeutralAssignTarget = StringOptionItem.Create(idStart++, "Role", neutralStringsArray, 0, TabGroup.Addons, false)
                     .SetParent(NeutralFixedRole);
             }
@@ -167,7 +173,10 @@ namespace TownOfHostForE.Roles.AddOns.Common
                 if (neutralMaximum > 0)
                 {
                     var neutrals = validPlayers.Where(pc
-                        => data.NeutralFixedRole.GetBool() ? pc.Is(NeutralRoles[data.NeutralAssignTarget.GetValue()]) : pc.Is(CustomRoleTypes.Neutral)).ToList();
+                        => !(data.Role == CustomRoles.Gambler && pc.Is(CustomRoles.God))
+                           && (data.NeutralFixedRole.GetBool()
+                               ? pc.Is(data.NeutralAssignableRoles[data.NeutralAssignTarget.GetValue()])
+                               : pc.Is(CustomRoleTypes.Neutral))).ToList();
                     for (var i = 0; i < neutralMaximum; i++)
                     {
                         if (neutrals.Count() == 0) break;

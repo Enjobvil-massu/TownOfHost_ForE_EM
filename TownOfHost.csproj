@@ -1,6 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+	<Import Project="local.props" Condition="Exists('local.props')" />
 	<PropertyGroup>
 		<TargetFramework>net6.0</TargetFramework>
+            <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
 		<GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
 		<Description>Town Of Host_ForE</Description>
@@ -20,8 +22,11 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Reference Include="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev\BepInEx\core\*.dll" />
-		<Reference Include="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev\BepInEx\interop\*.dll" />
+		<Reference Include="$(AmongUsPath)\BepInEx\core\*.dll" />
+		<Reference Include="$(AmongUsPath)\BepInEx\interop\*.dll" />
+        <Reference Include="ForhiteListEngine">
+            <HintPath>dll\ForhiteListEngine.dll</HintPath>
+        </Reference>
 		<EmbeddedResource Include=".\Resources\*.png" />
 		<EmbeddedResource Include=".\Resources\string.csv" />
 		<EmbeddedResource Include=".\Resources\Sounds\**" />
@@ -34,6 +39,8 @@
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 	    <PackageReference Include="csv" Version="2.0.93" />
+            <PackageReference Include="SharpDX" Version="4.2.0" />
+            <PackageReference Include="SharpDX.XAudio2" Version="4.2.0" />
 	    <PackageReference Include="GitInfo" Version="2.0.20">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -44,16 +51,34 @@
 	  <Folder Include="Modules\YouTube\" />
 	</ItemGroup>
 
-	<ItemGroup>
-	  <Reference Include="SharpDX">
-	    <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\interop\SharpDX.dll</HintPath>
-	  </Reference>
-	  <Reference Include="SharpDX.XAudio2">
-	    <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\interop\SharpDX.XAudio2.dll</HintPath>
-	  </Reference>
-	</ItemGroup>
+	<Target Name="Copy" AfterTargets="Build" Condition="'$(AmongUsPath)' != '' and Exists('$(AmongUsPath)\BepInEx\plugins')">
+  <ItemGroup>
+    <RuntimePluginFiles Include="$(TargetPath)" />
+    <RuntimePluginFiles Include="$(TargetDir)SharpDX.dll" Condition="Exists('$(TargetDir)SharpDX.dll')" />
+    <RuntimePluginFiles Include="$(TargetDir)SharpDX.XAudio2.dll" Condition="Exists('$(TargetDir)SharpDX.XAudio2.dll')" />
+  </ItemGroup>
+  <Copy SourceFiles="@(RuntimePluginFiles)"
+        DestinationFolder="$(AmongUsPath)\BepInEx\plugins\"
+        SkipUnchangedFiles="true" />
+</Target>
 
-	<Target Name="Copy" AfterTargets="Build" Condition="'C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev' != ''">
-		<Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="C:\Program Files (x86)\Steam\steamapps\common\Among Us _dev/BepInEx/plugins/" />
-	</Target>
+  <!-- Local display-build version. RPC compatibility version remains unchanged. -->
+  <PropertyGroup>
+    <Toh4eBuildVersionScript>$(MSBuildProjectDirectory)\BuildTools\Toh4eBuildVersion.ps1</Toh4eBuildVersionScript>
+    <Toh4eGeneratedVersionFile>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\Toh4eBuildVersion.g.cs</Toh4eGeneratedVersionFile>
+    <Toh4eBuildVersionStamp>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\Toh4eBuildVersion.stamp</Toh4eBuildVersionStamp>
+  </PropertyGroup>
+
+  <Target Name="PrepareToh4eBuildVersion" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(Toh4eBuildVersionScript)')" Text="TOH4E build-version script was not found: $(Toh4eBuildVersionScript)" />
+    <Exec Command="pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(Toh4eBuildVersionScript)&quot; -Action Prepare -GeneratedFile &quot;$(Toh4eGeneratedVersionFile)&quot; -StampFile &quot;$(Toh4eBuildVersionStamp)&quot;" />
+    <ItemGroup>
+      <Compile Include="$(Toh4eGeneratedVersionFile)" Visible="false" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="IncrementToh4eBuildVersion" AfterTargets="Build" DependsOnTargets="Copy" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(Toh4eBuildVersionScript)&quot; -Action Increment -StampFile &quot;$(Toh4eBuildVersionStamp)&quot;" />
+  </Target>
+
 </Project>

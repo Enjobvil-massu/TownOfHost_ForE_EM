@@ -60,6 +60,9 @@ public sealed class Executioner : RoleBase, IAdditionalWinner
     public static HashSet<Executioner> Executioners = new(15);
     public byte TargetId;
     private bool TargetExiled;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal bool RoleBugTraceTargetExiled => TargetExiled;
     public static readonly CustomRoles[] ChangeRoles =
     {
             CustomRoles.Crewmate, CustomRoles.Jester, CustomRoles.Opportunist,

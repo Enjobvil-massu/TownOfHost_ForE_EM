@@ -26,7 +26,7 @@ namespace TownOfHostForE.Modules
             .ToList().ForEach(sender => sender.SetDirty());
 
         public override IGameOptions BasedGameOptions =>
-            Main.RealOptionsData.Restore(new NormalGameOptionsV09(new UnityLogger().Cast<ILogger>()).Cast<IGameOptions>());
+            Main.RealOptionsData.Restore(new NormalGameOptionsV10(new UnityLogger().Cast<ILogger>()).Cast<IGameOptions>());
         public override bool IsDirty { get; protected set; }
 
         public PlayerControl player;
@@ -185,6 +185,16 @@ namespace TownOfHostForE.Modules
 
             AURoleOptions.ShapeshifterCooldown = Mathf.Max(1f, AURoleOptions.ShapeshifterCooldown);
             AURoleOptions.ProtectionDurationSeconds = 0f;
+
+            // TASK_BAR_MODE_TYPED_SYNC_PERMANENT: IGameOptionsをInterop TryCastして公式値を型付き反映
+            if (opt.TryCast<AmongUs.GameOptions.NormalGameOptionsV10>(out var normalOptions)
+                && GameManager.Instance != null
+                && GameManager.Instance.LogicOptions != null)
+            {
+                normalOptions.TaskBarMode =
+                    (AmongUs.GameOptions.TaskBarMode)(int)
+                    GameManager.Instance.LogicOptions.GetTaskBarMode();
+            }
             return opt;
         }
 

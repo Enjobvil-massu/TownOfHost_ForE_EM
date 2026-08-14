@@ -7,24 +7,31 @@ namespace TownOfHostForE
     {
         public static bool Prefix(GameData __instance)
         {
+            // A4_PLAYERSTATE_READINESS_GUARD_PERMANENT:
+            // GameData.RecomputeTaskCounts はロビー中にも公式側から呼ばれる。
+            // PlayerState はゲーム開始処理で作成されるため、全員分が未作成の間は
+            // A4集計で上書きせず公式 RecomputeTaskCounts へフォールバックする。
+            if (__instance == null || __instance.AllPlayers == null) return true;
+            foreach (var p in __instance.AllPlayers)
+            {
+                if (p == null) continue;
+                if (PlayerState.GetByPlayerId(p.PlayerId) == null) return true;
+            }
+
             __instance.TotalTasks = 0;
             __instance.CompletedTasks = 0;
             foreach (var p in __instance.AllPlayers)
             {
                 if (p == null) continue;
-                var hasTasks = Utils.HasTasks(p) && PlayerState.GetByPlayerId(p.PlayerId).GetTaskState().AllTasksCount > 0;
+                // RECOMPUTE_TASKSTATE_WIN_COUNTS_PERMANENT:
+                // TOH4E独自のUtils.HasTasks(ForRecompute=true)を維持したまま、
+                // 勝利用GameData集計をPlayerState.TaskStateへ統一する。
+                var taskState = PlayerState.GetByPlayerId(p.PlayerId).GetTaskState();
+                var hasTasks = Utils.HasTasks(p) && taskState.AllTasksCount > 0;
                 if (hasTasks)
                 {
-                    // if (p.Tasks == null)
-                    // {
-                    //     Logger.warn("警告:" + p.PlayerName + "のタスクがnullです");
-                    //     continue;//これより下を実行しない
-                    // }
-                    foreach (var task in p.Tasks)
-                    {
-                        __instance.TotalTasks++;
-                        if (task.Complete) __instance.CompletedTasks++;
-                    }
+                    __instance.TotalTasks += taskState.AllTasksCount;
+                    __instance.CompletedTasks += taskState.CompletedTasksCount;
                 }
             }
 

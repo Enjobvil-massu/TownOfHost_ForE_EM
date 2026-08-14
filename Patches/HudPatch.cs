@@ -21,9 +21,38 @@ namespace TownOfHostForE
         public static int NowFrameCount = 0;
         public static float FrameRateTimer = 0.0f;
         public static TMPro.TextMeshPro LowerInfoText;
+
+        // TASK_BAR_UI_MODE_SYNC_PERMANENT: MOD端末の上部ProgressTrackerだけを公式設定へ同期
+        private static void SyncTaskBarVisibility(HudManager hudManager)
+        {
+            // ロビー中は公式HUDへ介入しない。
+            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.IsGameStarted) return;
+            if (GameManager.Instance == null || GameManager.Instance.LogicOptions == null) return;
+            if (hudManager == null || hudManager.TaskStuff == null) return;
+
+            var progressTracker =
+                hudManager.TaskStuff.GetComponentInChildren<ProgressTracker>(true);
+            if (progressTracker == null) return;
+
+            var taskBarMode = GameManager.Instance.LogicOptions.GetTaskBarMode();
+            bool shouldShow = taskBarMode switch
+            {
+                global::TaskBarMode.Normal => true,
+                global::TaskBarMode.MeetingOnly => GameStates.IsMeeting,
+                global::TaskBarMode.Invisible => false,
+                _ => false,
+            };
+
+            if (progressTracker.gameObject.activeSelf != shouldShow)
+            {
+                progressTracker.gameObject.SetActive(shouldShow);
+            }
+        }
+
         public static void Postfix(HudManager __instance)
         {
             if (!GameStates.IsModHost) return;
+            SyncTaskBarVisibility(__instance);
             var player = PlayerControl.LocalPlayer;
             if (player == null) return;
             var TaskTextPrefix = "";

@@ -10,6 +10,8 @@ using TownOfHostForE.Roles.Core;
 using static TownOfHostForE.Translator;
 using TownOfHostForE.Roles.AddOns.Common;
 using TownOfHostForE.Roles.Core.Interfaces;
+// SCALES_PORT_PERMANENT: Scales役職の名前空間をMeetingHudPatchへ追加
+using TownOfHostForE.Roles.Crewmate;
 using System.Linq;
 using TMPro;
 using static TownOfHostForE.GameMode.WordLimit;
@@ -35,6 +37,16 @@ public static class MeetingHudPatch
     {
         public static bool Prefix(MeetingHud __instance, [HarmonyArgument(0)] byte srcPlayerId /* 投票した人 */ , [HarmonyArgument(1)] byte suspectPlayerId /* 投票された人 */ )
         {
+            if (AmongUsClient.Instance.AmHost && Options.IsFirstTurnMeetingAbilityBlocked)
+            {
+                MeetingVoteManager.Instance?.SetVote(
+                    srcPlayerId,
+                    MeetingVoteManager.Skip,
+                    isIntentional: false,
+                    applyRoleEffects: false);
+                return true;
+            }
+
             var voter = Utils.GetPlayerById(srcPlayerId);
             var voted = Utils.GetPlayerById(suspectPlayerId);
 
@@ -45,11 +57,33 @@ public static class MeetingHudPatch
                 return false;
             }
 
+            // SCALES_PORT_PERMANENT: 設定ON時は天秤対象外への投票型会議能力を無効化する
+            if (Scales.ShouldBlockMeetingAbilityVote(voter, suspectPlayerId))
+            {
+                __instance.RpcClearVote(voter.GetClientId());
+                Utils.SendMessage(
+                    Scales.GetAbilityBlockedMessage(),
+                    voter.PlayerId,
+                    Utils.ColorString(Utils.GetRoleColor(CustomRoles.Scales), Translator.GetString("Scales")));
+                return false;
+            }
+
             //ロールの奴
             if (voter.GetRoleClass()?.CheckVoteAsVoter(voted) == false)
             {
                 __instance.RpcClearVote(voter.GetClientId());
                 Logger.Info($"{voter.GetNameWithRole()} は投票しない", nameof(CastVotePatch));
+                return false;
+            }
+
+            // SCALES_PORT_PERMANENT: 天秤会議の実投票先は選ばれた2人だけに限定する
+            if (!Scales.IsAllowedSpecialVote(suspectPlayerId))
+            {
+                __instance.RpcClearVote(voter.GetClientId());
+                Utils.SendMessage(
+                    Scales.GetInvalidVoteMessage(),
+                    voter.PlayerId,
+                    Utils.ColorString(Utils.GetRoleColor(CustomRoles.Scales), Translator.GetString("Scales")));
                 return false;
             }
 
@@ -63,6 +97,8 @@ public static class MeetingHudPatch
         public static void Prefix()
         {
             Logger.Info("------------会議開始------------", "Phase");
+            // ROLEBUGTRACE_STAGE1A_PERMANENT
+            RoleBugTrace.MeetingStart();
             BGMSettings.SetMeetingBGM();
             ChatUpdatePatch.DoBlockChat = true;
             GameStates.AlreadyDied |= !Utils.IsAllAlive;
@@ -342,6 +378,9 @@ public static class MeetingHudPatch
             Logger.Info("------------会議終了------------", "Phase");
             if (AmongUsClient.Instance.AmHost)
             {
+                // ExileDisplayRealPermanent:
+                // 全員alive GameDataを送る前にofficial RoleTypeを安全化する。
+                AntiBlackout.ApplyPreparedRealExileSafetyPermanent();
                 AntiBlackout.SetIsDead();
             }
             // MeetingVoteManagerを通さずに会議が終了した場合の後処理
@@ -377,8 +416,13 @@ public static class MeetingHudPatch
     {
         var player = Utils.GetPlayerById(playerId);
         if (player == null) return;
+        var isMadmateRevenge =
+            player.Is(CustomRoleTypes.Madmate) &&
+            deathReason == CustomDeathReason.Vote &&
+            Options.MadmateRevengePlayer.GetBool();
+
         //道連れ能力持たない時は下を通さない
-        if (!((player.Is(CustomRoles.SKMadmate) && Options.MadmateRevengeCrewmate.GetBool())
+        if (!(isMadmateRevenge
             || player.Is(CustomRoles.EvilNekomata) || player.Is(CustomRoles.Nekomata) || player.Is(CustomRoles.Revenger) || player.Is(CustomRoles.NekoKabocha))) return;
 
         var target = PickRevengeTarget(player, deathReason);
@@ -391,7 +435,28 @@ public static class MeetingHudPatch
     {
         List<PlayerControl> TargetList = new();
 
-        if (exiledplayer.GetRoleClass() is INekomata nekomata)
+        var isMadmateRevenge =
+            exiledplayer.Is(CustomRoleTypes.Madmate) &&
+            deathReason == CustomDeathReason.Vote &&
+            Options.MadmateRevengePlayer.GetBool();
+
+        if (isMadmateRevenge)
+        {
+            foreach (var candidate in Main.AllAlivePlayerControls)
+            {
+                if (candidate == exiledplayer || Main.AfterMeetingDeathPlayers.ContainsKey(candidate.PlayerId)) continue;
+
+                var isAllowedTarget =
+                    (candidate.Is(CustomRoleTypes.Impostor) && Options.MadmateRevengeImpostor.GetBool()) ||
+                    (candidate.Is(CustomRoleTypes.Crewmate) && Options.MadmateRevengeCrewmate.GetBool()) ||
+                    (candidate.Is(CustomRoleTypes.Madmate) && Options.MadmateRevengeMadmate.GetBool()) ||
+                    (candidate.Is(CustomRoleTypes.Neutral) && Options.MadmateRevengeNeutral.GetBool()) ||
+                    (candidate.Is(CustomRoleTypes.Animals) && Options.MadmateRevengeAnimals.GetBool());
+
+                if (isAllowedTarget) TargetList.Add(candidate);
+            }
+        }
+        else if (exiledplayer.GetRoleClass() is INekomata nekomata)
         {
             // 道連れしない状態ならnull
             if (!nekomata.DoRevenge(deathReason))
@@ -415,15 +480,6 @@ public static class MeetingHudPatch
                 if (candidate.Is(CustomRoleTypes.Neutral) && !Options.RevengeNeutral.GetBool()) continue; //第三陣営（設定）
 
                 TargetList.Add(candidate);
-                //switch (exiledplayer.GetCustomRole())
-                //{
-                //    //ここに道連れ役職を追加
-                //    default:
-                //        if (exiledplayer.Is(CustomRoleTypes.Madmate) && deathReason == CustomDeathReason.Vote && Options.MadmateRevengeCrewmate.GetBool() //黒猫オプション
-                //        && !candidate.Is(CustomRoleTypes.Impostor))
-                //            TargetList.Add(candidate);
-                //        break;
-                //}
             }
         }
         if (TargetList == null || TargetList.Count == 0) return null;

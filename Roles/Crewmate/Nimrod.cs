@@ -46,12 +46,29 @@ public sealed class Nimrod : RoleBase
     {
         if (Exiled == null || !playerIdList.Contains(Exiled.PlayerId)) return Exiled;
 
+        var exiledPlayerId = Exiled.PlayerId;
         _ = new LateTask(() =>
         {
-            Utils.GetPlayerById(Exiled.PlayerId).NoCheckStartMeeting(Exiled);
-            IsExecutionMeeting = Exiled.PlayerId;
+            // NIMROD_DELAYED_MEETING_GUARD_PERMANENT: 15秒待機中の切断・対象消失を局所保護
+            var reporter = Utils.GetPlayerById(exiledPlayerId);
+            var target = GameData.Instance?.GetPlayerById(exiledPlayerId);
+            if (reporter == null
+                || reporter.Data == null
+                || reporter.Data.Disconnected
+                || target == null
+                || target.Disconnected)
+            {
+                Logger.Warn(
+                    $"遅延会議開始時に対象が切断済みのため中止: PlayerId={exiledPlayerId}",
+                    "Nimrod");
+                playerIdList.Remove(exiledPlayerId);
+                return;
+            }
+
+            reporter.NoCheckStartMeeting(target);
+            IsExecutionMeeting = exiledPlayerId;
             GuessManager.NotGueesFlag = true;
-            playerIdList.Remove(Exiled.PlayerId);
+            playerIdList.Remove(exiledPlayerId);
         }, 15f, "NimrodExiled");
         return null;
     }

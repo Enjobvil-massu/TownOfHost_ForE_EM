@@ -60,7 +60,12 @@ namespace TownOfHostForE
 
             var state = PlayerState.GetByPlayerId(seerId);
             if (state.TargetColorData.TryGetValue(targetId, out var value) && colorCode == value) return;
-            state.TargetColorData.Add(targetId, colorCode);
+
+            // NAMECOLOR_DUPLICATE_GUARD_PERMANENT: 同一targetIdの色更新を例外化せずlatest valueへ置換
+            if (!state.TargetColorData.TryAdd(targetId, colorCode))
+            {
+                state.TargetColorData[targetId] = colorCode;
+            }
 
             SendRPC(seerId, targetId, colorCode);
         }

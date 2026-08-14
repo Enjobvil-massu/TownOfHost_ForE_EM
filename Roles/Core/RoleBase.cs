@@ -402,8 +402,16 @@ public abstract class RoleBase : IDisposable
         return str.HasValue ? GetString(str.Value) : "Invalid";
     }
 
-    protected static AudioClip GetIntroSound(RoleTypes roleType) =>
-        RoleManager.Instance.AllRoles.Where((role) => role.Role == roleType).FirstOrDefault().IntroSound;
+    protected static AudioClip GetIntroSound(RoleTypes roleType)
+    {
+        foreach (var vanillaRole in RoleManager.Instance.AllRoles)
+        {
+            if (vanillaRole.Role == roleType)
+                return vanillaRole.IntroSound;
+        }
+
+        return null;
+    }
 
     protected enum GeneralOption
     {

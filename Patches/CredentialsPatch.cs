@@ -43,7 +43,15 @@ namespace TownOfHostForE
                 }
 
                 sb.Clear();
-                sb.Append(Main.credentialsText);
+                // MEETING_VERSION_CREDENTIALS_HIDE_AB_V1:
+                if (GameStates.IsMeeting)
+                {
+                    sb.Append("<size=0%>").Append(Main.credentialsText).Append("</size>");
+                }
+                else
+                {
+                    sb.Append(Main.credentialsText);
+                }
                 if (Options.NoGameEnd.GetBool()) sb.Append($"\r\n").Append(Utils.ColorString(Color.red, GetString("NoGameEnd")));
                 if (Options.IsStandardHAS) sb.Append($"\r\n").Append(Utils.ColorString(Color.yellow, GetString("StandardHAS")));
                 if (Options.CurrentGameMode == CustomGameMode.HideAndSeek) sb.Append($"\r\n").Append(Utils.ColorString(Color.red, GetString("HideAndSeek")));
@@ -67,7 +75,7 @@ namespace TownOfHostForE
             static void Postfix(VersionShower __instance)
             {
                 TMPTemplate.SetBase(__instance.text);
-                Main.credentialsText = $"<color={Main.ModColor}>{Main.ModName}</color> v{Main.PleviewPluginVersion}";
+                Main.credentialsText = $"{Main.ModNameRichText} v{Main.PleviewPluginVersion}";
                 if (Main.IsPrerelease)
                 {
                     Main.credentialsText += $"\r\n<#F39C12><size=120%>{GetString("Prerelease")}</size></color>";

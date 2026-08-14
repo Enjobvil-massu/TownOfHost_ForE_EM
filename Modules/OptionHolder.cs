@@ -37,7 +37,10 @@ namespace TownOfHostForE
         public static void OptionsLoadStart()
         {
             Logger.Info("Options.Load Start", "Options");
-            taskOptionsLoad = Task.Run(Load);
+
+            Load();
+            taskOptionsLoad = Task.CompletedTask;
+
 
             int chance = IRandom.Instance.Next(0, (int)CustomRoles._Max - 1);
         }
@@ -94,13 +97,18 @@ namespace TownOfHostForE
         public static OptionItem DefaultShapeshiftCooldown;
         public static OptionItem ImpostorOperateVisibility;
         public static OptionItem CanMakeMadmateCount;
-        public static OptionItem MadmateCanFixLightsOut; // TODO:mii-47 マッド役職統一
+        public static OptionItem MadmateCanFixLightsOut;
         public static OptionItem MadmateCanFixComms;
         public static OptionItem MadmateHasImpostorVision;
         public static OptionItem MadmateCanSeeKillFlash;
         public static OptionItem MadmateCanSeeOtherVotes;
         public static OptionItem MadmateCanSeeDeathReason;
+        public static OptionItem MadmateRevengePlayer = null!;
+        public static OptionItem MadmateRevengeImpostor = null!;
         public static OptionItem MadmateRevengeCrewmate;
+        public static OptionItem MadmateRevengeMadmate = null!;
+        public static OptionItem MadmateRevengeNeutral = null!;
+        public static OptionItem MadmateRevengeAnimals = null!;
         public static OptionItem MadmateVentCooldown;
         public static OptionItem MadmateVentMaxTime;
 
@@ -352,6 +360,18 @@ namespace TownOfHostForE
         public static OptionItem WordLimitOptions;
 
         // TOH_ForE機能
+        // ゲーム開始直後の強制会議
+        public static OptionItem FirstTurnMeeting = null!;
+        public static OptionItem FirstTurnMeetingCantability = null!;
+        public static bool FirstTurnMeetingInProgress;
+        public static bool IsFirstTurnMeetingActive =>
+            FirstTurnMeetingInProgress &&
+            FirstTurnMeeting?.GetBool() == true &&
+            CurrentGameMode == CustomGameMode.Standard &&
+            GameStates.IsInGame;
+        public static bool IsFirstTurnMeetingAbilityBlocked =>
+            IsFirstTurnMeetingActive &&
+            FirstTurnMeetingCantability?.GetBool() == true;
         // 会議収集理由表示
         public static OptionItem ShowReportReason;
         // 道連れ対象表示
@@ -506,6 +526,24 @@ namespace TownOfHostForE
             RevengeMadByImpostor = BooleanOptionItem.Create(91500, "RevengeMadByImpostor", false, TabGroup.MadmateRoles, false)
                 .SetGameMode(CustomGameMode.Standard)
                 .SetHeader(true);
+            MadmateRevengePlayer = BooleanOptionItem.Create(91526, "MadmateExileCrewmate", false, TabGroup.MadmateRoles, false)
+                .SetColor(Utils.GetCodeOfColor("#00fa9a"))
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateRevengeImpostor = BooleanOptionItem.Create(91527, "NekoKabochaImpostorsGetRevenged", false, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateRevengePlayer)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateRevengeCrewmate = BooleanOptionItem.Create(91530, "RevengeToCrewmate", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateRevengePlayer)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateRevengeMadmate = BooleanOptionItem.Create(91531, "NekoKabochaMadmatesGetRevenged", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateRevengePlayer)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateRevengeNeutral = BooleanOptionItem.Create(91532, "RevengeToNeutral", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateRevengePlayer)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateRevengeAnimals = BooleanOptionItem.Create(91533, "RevengeToAnimals", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateRevengePlayer)
+                .SetGameMode(CustomGameMode.Standard);
 
             sortedRoleInfo.Where(role => role.CustomRoleType == CustomRoleTypes.Madmate).Do(info =>
             {
@@ -524,7 +562,6 @@ namespace TownOfHostForE
             MadmateCanSeeKillFlash = BooleanOptionItem.Create(91523, "MadmateCanSeeKillFlash", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
             MadmateCanSeeOtherVotes = BooleanOptionItem.Create(91524, "MadmateCanSeeOtherVotes", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
             MadmateCanSeeDeathReason = BooleanOptionItem.Create(91525, "MadmateCanSeeDeathReason", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
-            MadmateRevengeCrewmate = BooleanOptionItem.Create(91526, "MadmateExileCrewmate", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
 
             // Madmate Common Options
             MadmateVentCooldown = FloatOptionItem.Create(91528, "MadmateVentCooldown", new(0f, 180f, 5f), 0f, TabGroup.MadmateRoles, false)
@@ -784,9 +821,17 @@ namespace TownOfHostForE
 
             #region 会議設定
             //TextOptionItem.Create(10_0003, "Head.Meeting", TabGroup.MainSettings).SetColor(Color.yellow).SetGameMode(CustomGameMode.All);
+            // ゲーム開始直後の強制会議
+            FirstTurnMeeting = BooleanOptionItem.Create(100280, "FirstTurnMeeting", false, TabGroup.MainSettings, false)
+                .SetHeader(true)
+                .SetColor(Color.cyan)
+                .SetGameMode(CustomGameMode.Standard);
+            FirstTurnMeetingCantability = BooleanOptionItem.Create(100290, "FirstTurnMeetingCantability", false, TabGroup.MainSettings, false)
+                .SetParent(FirstTurnMeeting)
+                .SetGameMode(CustomGameMode.Standard);
+
             // 会議収集理由表示
             ShowReportReason = BooleanOptionItem.Create(100300, "ShowReportReason", false, TabGroup.MainSettings, false)
-                .SetHeader(true)
                 .SetColor(Color.cyan);
 
             //道連れ人表記
@@ -992,6 +1037,11 @@ namespace TownOfHostForE
                     CustomRoles.MadSnitch or CustomRoles.Jackal or CustomRoles.JClient or CustomRoles.LastImpostor or CustomRoles.CompreteCrew or CustomRoles.RedPanda) continue;
                 if (Addon == CustomRoles.Revenger && PlayerRole is CustomRoles.MadNimrod) continue;
 
+                if (PlayerRole == CustomRoles.God && Addon == CustomRoles.Gambler) // GOD_GAMBLER_OPTION_GUARD_PERMANENT
+                {
+                    Id++;
+                    continue;
+                }
                 SetUpAddOnRoleOption(PlayerRole, tab, Addon, Id, false, AddOnBuffAssign[PlayerRole]);
                 Id++;
             }
@@ -999,6 +1049,11 @@ namespace TownOfHostForE
             Id += 10;
             foreach (var Addon in Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x.IsDebuffAddOn()))
             {
+                if (PlayerRole == CustomRoles.God && Addon == CustomRoles.Gambler) // GOD_GAMBLER_OPTION_GUARD_PERMANENT
+                {
+                    Id++;
+                    continue;
+                }
                 SetUpAddOnRoleOption(PlayerRole, tab, Addon, Id, false, AddOnDebuffAssign[PlayerRole]);
                 Id++;
             }

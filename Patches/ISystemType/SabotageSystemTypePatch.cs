@@ -34,27 +34,36 @@ public static class SabotageSystemTypeUpdateSystemPatch
         var nextSabotage = (SystemTypes)amount;
         logger.Info($"PlayerName: {player.GetNameWithRole()}, SabotageType: {nextSabotage}");
 
+        // ROLEBUGTRACE_STAGE1B_PERMANENT
+        bool TraceReturn(bool accepted, string reason)
+        {
+            RoleBugTrace.Sabotage(player, nextSabotage, accepted, reason);
+            return accepted;
+        }
+
         //HASモードではサボタージュ不可
-        if (Options.CurrentGameMode == CustomGameMode.HideAndSeek || Options.IsStandardHAS) return false;
+        if (Options.CurrentGameMode == CustomGameMode.HideAndSeek || Options.IsStandardHAS) return TraceReturn(false, "GameMode");
 
         if (!CustomRoleManager.OnSabotage(player, nextSabotage))
         {
-            return false;
+            return TraceReturn(false, "CustomRoleManager.OnSabotage");
         }
 
-        if (DarkGameMaster.InDeathGamePenalty(player)== false) return false;
+        if (DarkGameMaster.InDeathGamePenalty(player)== false) return TraceReturn(false, "DeathGamePenalty");
 
         var roleClass = player.GetRoleClass();
         if (roleClass is IKiller killer)
         {
             //そもそもサボタージュボタン使用不可ならサボタージュ不可
-            if (!killer.CanUseSabotageButton()) return false;
+            if (!killer.CanUseSabotageButton()) return TraceReturn(false, "CanUseSabotageButton");
             //その他処理が必要であれば処理
-            return roleClass.OnInvokeSabotage(nextSabotage);
+            var accepted = roleClass.OnInvokeSabotage(nextSabotage);
+            return TraceReturn(accepted, "IKiller.OnInvokeSabotage");
         }
         else
         {
-            return CanSabotage(player);
+            var accepted = CanSabotage(player);
+            return TraceReturn(accepted, "CustomRoleTypes.Impostor");
         }
     }
     private static bool CanSabotage(PlayerControl player)

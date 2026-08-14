@@ -143,12 +143,18 @@ namespace TownOfHostForE
             //seer: 上の変更を確認することができるプレイヤー
             if (player == null || name == null || !AmongUsClient.Instance.AmHost) return;
             if (seer == null) seer = player;
-            if (!force && Main.LastNotifyNames[(player.PlayerId, seer.PlayerId)] == name)
+            // VANILLA_HOST_MOD_VERSION_DISPLAY_LASTNOTIFY_SAFE_PERMANENT:
+            // ロビーではLastNotifyNamesが未初期化、または新規参加者との組合せキーが未登録になり得る。
+            // 既存の「同じ名前なら送信抑制」という仕様は維持し、未初期化/未登録時だけ安全に送信へ進める。
+            Main.LastNotifyNames ??= new();
+            var notifyNameKey = (player.PlayerId, seer.PlayerId);
+            if (!force &&
+                Main.LastNotifyNames.TryGetValue(notifyNameKey, out var lastName) &&
+                lastName == name)
             {
-                //Logger.info($"Cancel:{player.name}:{name} for {seer.name}", "RpcSetNamePrivate");
                 return;
             }
-            Main.LastNotifyNames[(player.PlayerId, seer.PlayerId)] = name;
+            Main.LastNotifyNames[notifyNameKey] = name;
             HudManagerPatch.LastSetNameDesyncCount++;
             //Logger.Info($"Set:{player?.Data?.PlayerName}:{name.RemoveHtmlTags()} for {seer.GetNameWithRole()}", "RpcSetNamePrivate");
             var clientId = seer.GetClientId();
@@ -612,7 +618,8 @@ namespace TownOfHostForE
             DestroyableSingleton<HudManager>.Instance.OpenMeetingRoom(reporter);
             reporter.RpcStartMeeting(target);
         }
-        public static bool IsModClient(this PlayerControl player) => Main.playerVersion.ContainsKey(player.PlayerId);
+        public static bool IsModClient(this PlayerControl player) =>
+            player != null && RPC.IsCompatibleVersion(player.PlayerId);
         ///<summary>
         ///プレイヤーのRoleBehaviourのGetPlayersInAbilityRangeSortedを実行し、戻り値を返します。
         ///</summary>
@@ -805,10 +812,19 @@ namespace TownOfHostForE
 
         //汎用
         public static bool Is(this PlayerControl target, CustomRoles role) =>
-            role > CustomRoles.NotAssigned ? target.GetCustomSubRoles().Contains(role) : target.GetCustomRole() == role;
-        public static bool Is(this PlayerControl target, CustomRoleTypes type) { return target.GetCustomRole().GetCustomRoleTypes() == type; }
-        public static bool Is(this PlayerControl target, RoleTypes type) { return target.GetCustomRole().GetRoleTypes() == type; }
-        public static bool Is(this PlayerControl target, CountTypes type) { return target.GetCountTypes() == type; }
+            target != null &&
+            (role > CustomRoles.NotAssigned
+                ? target.GetCustomSubRoles().Contains(role)
+                : target.GetCustomRole() == role);
+
+        public static bool Is(this PlayerControl target, CustomRoleTypes type) =>
+            target != null && target.GetCustomRole().GetCustomRoleTypes() == type;
+
+        public static bool Is(this PlayerControl target, RoleTypes type) =>
+            target != null && target.GetCustomRole().GetRoleTypes() == type;
+
+        public static bool Is(this PlayerControl target, CountTypes type) =>
+            target != null && target.GetCountTypes() == type;
         public static bool IsAlive(this PlayerControl target)
         {
             //ロビーなら生きている

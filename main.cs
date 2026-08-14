@@ -12,6 +12,7 @@ using UnityEngine;
 
 using TownOfHostForE.Attributes;
 using TownOfHostForE.Roles.Core;
+using TownOfHostForE.Roles.Core.Descriptions;
 using TownOfHostForE.Modules;
 using TownOfHostForE.Modules.OtherServices;
 
@@ -19,7 +20,13 @@ using TownOfHostForE.Modules.OtherServices;
 [assembly: AssemblyInformationalVersionAttribute(TownOfHostForE.Main.PluginVersion)]
 namespace TownOfHostForE
 {
-    [BepInPlugin(PluginGuid, "Town Of Host ForE", PluginVersion)]
+    public enum SystemMessageKind
+    {
+        NormalMessage,
+        RoleHelp,
+    }
+
+    [BepInPlugin(PluginGuid, "Town Of Host For E EM", PluginVersion)]
     [BepInIncompatibility("jp.ykundesu.supernewroles")]
     [BepInIncompatibility("com.emptybottle.townofhost")]
     [BepInProcess("Among Us.exe")]
@@ -27,17 +34,19 @@ namespace TownOfHostForE
     {
         // == プログラム設定 / Program Config ==
         // modの名前 / Mod Name (Default: Town Of Host)
-        public static readonly string ModName = "Town Of Host ForE";
+        // MOD_DISPLAY_NAME_EM_PERMANENT: 表示名のみ変更。内部GUID/namespace/Assembly名は変更しない。
+        public static readonly string ModName = "Town Of Host For E EM";
         // modの色 / Mod Color (Default: #00bfff)
         public static readonly string ModColor = "#18e744";
+        public static string ModNameRichText => $"<color={ModColor}>Town Of Host For E</color> <color=#FFD700>EM</color>";
         // 公開ルームを許可する / Allow Public Room (Default: true)
         public static readonly bool AllowPublicRoom = false;
         // フォークID / ForkId (Default: OriginalTOH)
-        public static readonly string ForkId = "TOH4E";
+        public static readonly string ForkId = "TOH4E_EM";
         // Discordボタンを表示するか / Show Discord Button (Default: true)
-        public static readonly bool ShowDiscordButton = true;
+        public static readonly bool ShowDiscordButton = false;
         // Discordサーバーの招待リンク / Discord Server Invite URL (Default: https://discord.gg/W5ug6hXB9V)
-        public static readonly string DiscordInviteUrl = "https://discord.gg/t7bWaEMVw6";
+        public static readonly string DiscordInviteUrl = "";
         // ==========
         public const string OriginalForkId = "OriginalTOH"; // Don't Change The Value. / この値を変更しないでください。
         // == 認証設定 / Authentication Config ==
@@ -54,7 +63,7 @@ namespace TownOfHostForE
         //Sorry for many Japanese comments.
         public const string PluginGuid = "com.AsumuAkaguma.townofhostfore";
         public const string PluginVersion = "5113.5.0.0";
-        public const string PleviewPluginVersion = "Degrade";
+        public const string PleviewPluginVersion = BuildVersionInfo.DisplayVersion;
         // サポートされている最低のAmongUsバージョン
         public static readonly string LowestSupportedVersion = "2025.04.20";
         // このバージョンのみで公開ルームを無効にする場合
@@ -88,8 +97,8 @@ namespace TownOfHostForE
         public static string ExceptionMessage;
         public static bool ExceptionMessageIsShown = false;
         public static string credentialsText;
-        public static NormalGameOptionsV09 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
-        public static HideNSeekGameOptionsV09 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
+        public static NormalGameOptionsV10 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
+        public static HideNSeekGameOptionsV10 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
         //Client Options
         public static ConfigEntry<string> HideName { get; private set; }
         public static ConfigEntry<string> HideColor { get; private set; }
@@ -119,7 +128,7 @@ namespace TownOfHostForE
         public static Dictionary<CustomColor, String> customColors;
         public static List<byte> winnerList;
         public static List<int> clientIdList;
-        public static List<(string, byte, string)> MessagesToSend;
+        public static List<(string Text, byte SendTo, string Title, SystemMessageKind MessageKind, RoleHelpSections? RoleHelpSections)> MessagesToSend;
         public static List<(string, byte, string, PlayerControl)> SuffixMessagesToSend = new();
         public static bool isChatCommand = false;
         public static Dictionary<byte, float> AllPlayerKillCooldown = new();
@@ -172,7 +181,7 @@ namespace TownOfHostForE
             LoadDLL.OnLoadDLL();
 
             //Client Options
-            HideName = Config.Bind("Client Options", "Hide Game Code Name", "Town Of Host ForE");
+            HideName = Config.Bind("Client Options", "Hide Game Code Name", "Town Of Host For E EM");
             HideColor = Config.Bind("Client Options", "Hide Game Code Color", $"{ModColor}");
             ForceJapanese = Config.Bind("Client Options", "Force Japanese", false);
             JapaneseRoleName = Config.Bind("Client Options", "Japanese Role Name", true);
@@ -181,6 +190,7 @@ namespace TownOfHostForE
 
             Logger = BepInEx.Logging.Logger.CreateLogSource("TOH4E");
             TownOfHostForE.Logger.Enable();
+            TownOfHostForE.Logger.Info($"v{PleviewPluginVersion}", "DisplayVersion");
             TownOfHostForE.Logger.Disable("NotifyRoles");
             TownOfHostForE.Logger.Disable("SendRPC");
             TownOfHostForE.Logger.Disable("ReceiveRPC");
@@ -196,7 +206,7 @@ namespace TownOfHostForE
 
             winnerList = new();
             VisibleTasksCount = false;
-            MessagesToSend = new List<(string, byte, string)>();
+            MessagesToSend = new List<(string Text, byte SendTo, string Title, SystemMessageKind MessageKind, RoleHelpSections? RoleHelpSections)>();
 
             Preset1 = Config.Bind("Preset Name Options", "Preset1", "Preset_1");
             Preset2 = Config.Bind("Preset Name Options", "Preset2", "Preset_2");
@@ -368,6 +378,8 @@ namespace TownOfHostForE
         PlagueDoctor = CustomRoles.PlagueDoctor,
         Tuna = CustomRoles.Tuna,
         DeathGame = CustomRoles.DarkGameMaster,
+        // GOD_CUSTOM_WINNER_PERMANENT
+        God = CustomRoles.God,
 
         HASTroll = CustomRoles.HASTroll,
 

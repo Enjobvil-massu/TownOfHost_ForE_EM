@@ -80,6 +80,7 @@ namespace TownOfHostForE
         RedPandaSync,
         SyncBetwinShogo,
         PlaySoundSERPC,
+        RequestChatCommand = 153,
     }
     public enum Sounds
     {
@@ -89,59 +90,154 @@ namespace TownOfHostForE
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
     class RPCHandlerPatch
     {
-        public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] byte callId, [HarmonyArgument(1)] MessageReader reader)
+        internal enum CustomPostfixDisposition
         {
+            Suppress = 0,
+            Dispatch = 1,
+        }
+        public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] byte callId, [HarmonyArgument(1)] MessageReader reader, out CustomPostfixDisposition __state)
+        {
+            __state = CustomPostfixDisposition.Dispatch;
             var rpcType = (RpcCalls)callId;
-            Logger.Info($"{__instance?.Data?.PlayerId}({__instance?.Data?.PlayerName}):{callId}({RPC.GetRpcName(callId)})", "ReceiveRPC");
+            if (callId != (byte)CustomRPC.RequestChatCommand)
+                Logger.Info($"{__instance?.Data?.PlayerId}({__instance?.Data?.PlayerName}):{callId}({RPC.GetRpcName(callId)})", "ReceiveRPC");
             MessageReader subReader = MessageReader.Get(reader);
-            switch (rpcType)
+            // RPC001_SUBREADER_FINALLY_RECYCLE_PERMANENT:
+            // MessageReader.Getで取得したpool readerを、全return/例外経路で必ず1回だけRecycleする。
+            try
             {
-                case RpcCalls.SetName: //SetNameRPC
-                    subReader.ReadUInt32();
-                    string name = subReader.ReadString();
-                    if (subReader.BytesRemaining > 0 && subReader.ReadBoolean()) return false;
-                    Logger.Info("名前変更:" + __instance.GetNameWithRole() + " => " + name, "SetName");
-                    break;
-                case RpcCalls.SetRole: //SetNameRPC
-                    var role = (RoleTypes)subReader.ReadUInt16();
-                    Logger.Info("役職:" + __instance.GetRealName() + " => " + role, "SetRole");
-                    break;
-                case RpcCalls.SendChat:
-                    var text = subReader.ReadString();
-                    Logger.Info($"{__instance.GetNameWithRole()}:{text}", "SendChat");
-                    ChatCommands.OnReceiveChat(__instance, text, out var canceled);
-                    if (!GameStates.IsLobby)
-                    {
-                        var cRole = __instance.GetCustomRole();
-                        if(!cRole.IsNotAssignRoles())__instance.GetRoleClass().OnReceiveChat(__instance, text);
-                        Ojou.OjouOnReceiveChat(__instance, text);
-                        Chu2Byo.Chu2OnReceiveChat(__instance, text);
-                        WordLimit.OnReceiveChat(__instance,text);
-                    }
-                    BetWinTeams.BetOnReceiveChat(__instance, text);
-                    break;
-                case RpcCalls.StartMeeting:
-                    var p = Utils.GetPlayerById(subReader.ReadByte());
-                    Logger.Info($"{__instance.GetNameWithRole()} => {p?.GetNameWithRole() ?? "null"}", "StartMeeting");
-                    break;
-            }
-            if (__instance.PlayerId != 0
-                && Enum.IsDefined(typeof(CustomRPC), (int)callId)
-                && !(callId == (byte)CustomRPC.VersionCheck || callId == (byte)CustomRPC.RequestRetryVersionCheck)) //ホストではなく、CustomRPCで、VersionCheckではない
-            {
-                Logger.Warn($"{__instance?.Data?.PlayerName}:{callId}({RPC.GetRpcName(callId)}) ホスト以外から送信されたためキャンセルしました。", "CustomRPC");
-                if (AmongUsClient.Instance.AmHost)
+                switch (rpcType)
                 {
-                    AmongUsClient.Instance.KickPlayer(__instance.GetClientId(), false);
-                    Logger.Warn($"不正なRPCを受信したため{__instance?.Data?.PlayerName}をキックしました。", "Kick");
-                    Logger.SendInGame(string.Format(GetString("Warning.InvalidRpc"), __instance?.Data?.PlayerName));
+                    case RpcCalls.SetName: //SetNameRPC
+                        subReader.ReadUInt32();
+                        string name = subReader.ReadString();
+                        if (subReader.BytesRemaining > 0 && subReader.ReadBoolean()) return false;
+                        Logger.Info("名前変更:" + __instance.GetNameWithRole() + " => " + name, "SetName");
+                        break;
+                    case RpcCalls.SetRole: //SetNameRPC
+                        var role = (RoleTypes)subReader.ReadUInt16();
+                        Logger.Info("役職:" + __instance.GetRealName() + " => " + role, "SetRole");
+                        break;
+                    case RpcCalls.SendChat:
+                        var text = subReader.ReadString();
+                        Logger.Info($"{__instance.GetNameWithRole()}:{text}", "SendChat");
+                        var chatInput = ChatCommands.ParseChatInput(text);
+                        ChatCommands.DispatchRemoteParticipantChat(__instance, chatInput, out var canceled);
+                        if (canceled) return false;
+                        break;
+                    case RpcCalls.StartMeeting:
+                        var p = Utils.GetPlayerById(subReader.ReadByte());
+                        Logger.Info($"{__instance.GetNameWithRole()} => {p?.GetNameWithRole() ?? "null"}", "StartMeeting");
+                        // EPIC_MEETING_REASON_RPC_SYNC_PERMANENT:
+                        // ReportDeadBodyのhost-only確定処理より先にreturnするMOD参加者でも、
+                        // StartMeeting RPCから同じreportInfoをローカル生成する。
+                        if (!AmongUsClient.Instance.AmHost)
+                        {
+                            MeetingDisplay.CreateButtonInfo(__instance, p is null ? null! : p.Data);
+                        }
+                        break;
                 }
+                if (callId == (byte)CustomRPC.RequestChatCommand)
+                {
+                    RPC.ReceiveChatCommandRequest(__instance, subReader);
+                    return false;
+                }
+                if (callId == (byte)CustomRPC.VersionCheck ||
+                    callId == (byte)CustomRPC.RequestRetryVersionCheck)
+                {
+                    return false;
+                }
+                if (TryReadEhrCompatibleVersionCheck(__instance, callId, reader, out var ehrVersion))
+                {
+                    __state = CustomPostfixDisposition.Suppress;
+                    Main.playerVersion[__instance!.PlayerId] = ehrVersion;
+                    return false;
+                }
+                if (__instance.PlayerId != 0
+                    && Enum.IsDefined(typeof(CustomRPC), (int)callId)
+                    && !(callId == (byte)CustomRPC.VersionCheck || callId == (byte)CustomRPC.RequestRetryVersionCheck)) //ホストではなく、CustomRPCで、VersionCheckではない
+                {
+                    Logger.Warn($"{__instance?.Data?.PlayerName}:{callId}({RPC.GetRpcName(callId)}) ホスト以外から送信されたためキャンセルしました。", "CustomRPC");
+                    if (AmongUsClient.Instance.AmHost)
+                    {
+                        AmongUsClient.Instance.KickPlayer(__instance.GetClientId(), false);
+                        Logger.Warn($"不正なRPCを受信したため{__instance?.Data?.PlayerName}をキックしました。", "Kick");
+                        Logger.SendInGame(string.Format(GetString("Warning.InvalidRpc"), __instance?.Data?.PlayerName));
+                    }
+                    __state = CustomPostfixDisposition.Suppress;
+                    return false;
+                }
+                return true;
+            }
+            finally
+            {
+                subReader.Recycle();
+            }
+        }
+        private static bool TryReadEhrCompatibleVersionCheck(
+            PlayerControl? sender,
+            byte callId,
+            MessageReader reader,
+            out PlayerVersion version)
+        {
+            version = null!;
+
+            var client = AmongUsClient.Instance;
+            if (client == null ||
+                !client.AmHost ||
+                callId != (byte)CustomRPC.EndGame ||
+                sender == null ||
+                sender.Data == null ||
+                sender.PlayerId == 0)
+            {
                 return false;
             }
-            return true;
+
+            var mappedClients = client.allClients.ToArray().Where(data =>
+            {
+                if (data == null || data.Character == null) return false;
+
+                var character = data.Character;
+                return data.Id == sender.OwnerId &&
+                    data.Id == sender.Data.ClientId &&
+                    character.PlayerId == sender.PlayerId &&
+                    character.OwnerId == sender.OwnerId &&
+                    character.NetId == sender.NetId;
+            }).ToArray();
+
+            if (mappedClients.Length != 1 ||
+                mappedClients[0].Id == client.ClientId ||
+                mappedClients[0].Id == client.HostId)
+            {
+                return false;
+            }
+
+            MessageReader? probe = null;
+            try
+            {
+                probe = MessageReader.Get(reader);
+                var ehrVersion = Version.Parse(probe.ReadString());
+                var tag = probe.ReadString();
+                var forkId = probe.ReadString();
+
+                if (forkId != "EHR" || probe.BytesRemaining != 0) return false;
+
+                version = new PlayerVersion(ehrVersion, tag, forkId);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                probe?.Recycle();
+            }
         }
-        public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] byte callId, [HarmonyArgument(1)] MessageReader reader)
+        public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] byte callId, [HarmonyArgument(1)] MessageReader reader, CustomPostfixDisposition __state)
         {
+            if (__state == CustomPostfixDisposition.Suppress) return;
+            if (callId == (byte)CustomRPC.RequestChatCommand) return;
             //CustomRPC以外は処理しない
             if (callId < (byte)CustomRPC.VersionCheck) return;
 
@@ -155,6 +251,15 @@ namespace TownOfHostForE
                         string tag = reader.ReadString();
                         string forkId = 3 <= version.Major ? reader.ReadString() : Main.OriginalForkId;
                         Main.playerVersion[__instance.PlayerId] = new PlayerVersion(version, tag, forkId);
+
+                        if (AmongUsClient.Instance.AmHost && RPC.IsCompatibleVersion(__instance.PlayerId))
+                        {
+                            var targetClientId = __instance.GetClientId();
+                            _ = new LateTask(
+                                () => RPC.SyncCustomSettingsRPC(targetClientId),
+                                0.5f,
+                                "Sync Settings After Version Check");
+                        }
                     }
                     catch
                     {
@@ -170,10 +275,32 @@ namespace TownOfHostForE
                     RPC.RpcVersionCheck();
                     break;
                 case CustomRPC.SyncCustomSettings:
-                    foreach (var co in OptionItem.AllOptions)
+                    try
                     {
-                        //すべてのカスタムオプションについてインデックス値で受信
-                        co.SetValue(reader.ReadPackedInt32());
+                        var startIndex = reader.ReadPackedInt32();
+                        var optionCount = reader.ReadPackedInt32();
+
+                        if (startIndex < 0 || optionCount < 0 ||
+                            startIndex > OptionItem.AllOptions.Count ||
+                            optionCount > OptionItem.AllOptions.Count - startIndex)
+                        {
+                            Logger.Warn(
+                                $"Invalid custom settings range: start={startIndex}, count={optionCount}, total={OptionItem.AllOptions.Count}",
+                                "SyncCustomSettings");
+                            break;
+                        }
+
+                        for (var index = 0; index < optionCount; index++)
+                        {
+                            OptionItem.AllOptions[startIndex + index].SetValue(reader.ReadPackedInt32());
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(
+                            "カスタム設定同期の受信中に例外が発生しました。",
+                            "SyncCustomSettings");
+                        Logger.Exception(ex, "SyncCustomSettings");
                     }
                     break;
                 case CustomRPC.SetDeathReason:
@@ -274,17 +401,310 @@ namespace TownOfHostForE
     }
     static class RPC
     {
-        //SyncCustomSettingsRPC Sender
-        public static void SyncCustomSettingsRPC()
+        private const int MaxOptionsPerSyncPacket = 150;
+        private const int MaxChatCommandRequestLength = 64;
+        private const string ChatCommandRequestMarker = "MOD_CMD_REQUEST_PERMANENT";
+        private const string MixedClientProtocolSuffix = "|mixed-client-sync-v1";
+
+        public static string CurrentVersionTag =>
+            $"{ThisAssembly.Git.Commit}({ThisAssembly.Git.Branch}){MixedClientProtocolSuffix}";
+
+        public static bool IsCompatibleVersion(byte playerId)
         {
-            if (!AmongUsClient.Instance.AmHost) return;
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.SyncCustomSettings, SendOption.Reliable, -1);
-            foreach (var co in OptionItem.AllOptions)
+            if (!Main.playerVersion.TryGetValue(playerId, out var version)) return false;
+
+            return Main.ForkId == version.forkId
+                && Main.version.CompareTo(version.version) == 0
+                && version.tag == CurrentVersionTag;
+        }
+
+        public static bool TrySendChatCommandRequest(string rawText)
+        {
+            var chatInput = ChatCommands.ParseChatInput(rawText);
+            var client = AmongUsClient.Instance;
+            var localPlayer = PlayerControl.LocalPlayer;
+
+            if (client == null)
             {
-                //すべてのカスタムオプションについてインデックス値で送信
-                writer.WritePacked(co.GetValue());
+                LogChatCommandRequestReject("ClientUnavailable");
+                return false;
             }
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            if (client.AmHost)
+            {
+                LogChatCommandRequestReject("LocalPlayerIsHost");
+                return false;
+            }
+            if (chatInput.Kind != ChatCommands.ChatInputKind.AcceptedCommand)
+            {
+                LogChatCommandRequestReject("ParseKindNotAcceptedCommand");
+                return false;
+            }
+            if (!ChatCommands.IsRemoteParticipantCommand(chatInput.RoutedText))
+            {
+                LogChatCommandRequestReject("RoutedCommandNotSupported");
+                return false;
+            }
+            if (!GameStates.IsOnlineGame)
+            {
+                LogChatCommandRequestReject("NotOnlineGame");
+                return false;
+            }
+            if (localPlayer == null)
+            {
+                LogChatCommandRequestReject("LocalPlayerUnavailable");
+                return false;
+            }
+
+            var hostId = client.HostId;
+            if (hostId < 0 || hostId == client.ClientId)
+            {
+                LogChatCommandRequestReject("InvalidHostId");
+                return false;
+            }
+
+            var hostClient = client.allClients.ToArray()
+                .FirstOrDefault(data => data != null && data.Id == hostId);
+            if (hostClient?.Character == null)
+            {
+                LogChatCommandRequestReject("HostClientUnavailable");
+                return false;
+            }
+            if (!hostClient.Character.IsModClient() ||
+                !IsCompatibleVersion(hostClient.Character.PlayerId))
+            {
+                LogChatCommandRequestReject("HostNotCompatible");
+                return false;
+            }
+
+            MessageWriter writer = client.StartRpcImmediately(
+                localPlayer.NetId,
+                (byte)CustomRPC.RequestChatCommand,
+                SendOption.Reliable,
+                hostId);
+            writer.Write(rawText);
+            client.FinishRpcImmediately(writer);
+
+            Logger.Info(
+                $"{ChatCommandRequestMarker} Action=Send IsHost={client.AmHost} " +
+                $"HostId={hostId} RawLength={rawText.Length} ParseKind={chatInput.Kind} " +
+                $"RoutedCommand={chatInput.RoutedText}",
+                "ChatCommand");
+            return true;
+        }
+
+        public static void ReceiveChatCommandRequest(
+            PlayerControl? sender,
+            MessageReader? reader)
+        {
+            var client = AmongUsClient.Instance;
+            if (client == null || !client.AmHost)
+            {
+                LogChatCommandRequestReject("ReceiverIsNotHost");
+                return;
+            }
+            if (sender == null)
+            {
+                LogChatCommandRequestReject("SenderUnavailable");
+                return;
+            }
+
+            var localPlayer = PlayerControl.LocalPlayer;
+            var senderClient = client.allClients.ToArray()
+                .FirstOrDefault(data =>
+                    data?.Character != null &&
+                    data.Character.PlayerId == sender.PlayerId);
+            var senderClientId = senderClient?.Id ?? -1;
+            if (localPlayer == null)
+            {
+                LogChatCommandRequestReject("LocalHostUnavailable");
+                return;
+            }
+            if (sender == localPlayer ||
+                sender.PlayerId == localPlayer.PlayerId ||
+                senderClientId == client.ClientId)
+            {
+                LogChatCommandRequestReject("SenderIsLocalHost");
+                return;
+            }
+            if (senderClientId < 0)
+            {
+                LogChatCommandRequestReject("SenderClientUnavailable");
+                return;
+            }
+            if (reader == null)
+            {
+                LogChatCommandRequestReject("ReaderUnavailable");
+                return;
+            }
+
+            var senderIsModClient = sender.IsModClient();
+            var compatible = IsCompatibleVersion(sender.PlayerId);
+            string rawText;
+            try
+            {
+                rawText = reader.ReadString();
+            }
+            catch
+            {
+                LogChatCommandRequestReject("InvalidPayload");
+                return;
+            }
+
+            var rawLength = rawText?.Length ?? 0;
+            Logger.Info(
+                $"{ChatCommandRequestMarker} Action=Receive AmHost={client.AmHost} " +
+                $"SenderPlayerId={sender.PlayerId} SenderClientId={senderClientId} " +
+                $"SenderIsModClient={senderIsModClient} Compatible={compatible} " +
+                $"RawLength={rawLength}",
+                "ChatCommand");
+
+            if (!senderIsModClient)
+            {
+                LogChatCommandRequestReject("SenderIsNotModClient");
+                return;
+            }
+            if (!compatible)
+            {
+                LogChatCommandRequestReject("SenderVersionIncompatible");
+                return;
+            }
+            if (string.IsNullOrEmpty(rawText))
+            {
+                LogChatCommandRequestReject("RawInputEmpty");
+                return;
+            }
+            if (rawText.Length > MaxChatCommandRequestLength)
+            {
+                LogChatCommandRequestReject("RawInputTooLong");
+                return;
+            }
+            if (reader.BytesRemaining != 0)
+            {
+                LogChatCommandRequestReject("UnexpectedPayloadData");
+                return;
+            }
+
+            var chatInput = ChatCommands.ParseChatInput(rawText);
+            if (chatInput.Kind != ChatCommands.ChatInputKind.AcceptedCommand)
+            {
+                LogChatCommandRequestReject("ParseKindNotAcceptedCommand");
+                return;
+            }
+            if (!ChatCommands.IsRemoteParticipantCommand(chatInput.RoutedText))
+            {
+                LogChatCommandRequestReject("RoutedCommandNotSupported");
+                return;
+            }
+
+            Logger.Info(
+                $"{ChatCommandRequestMarker} Action=Dispatch " +
+                $"RoutedCommand={chatInput.RoutedText} SenderPlayerId={sender.PlayerId}",
+                "ChatCommand");
+            ChatCommands.DispatchRemoteParticipantChat(sender, chatInput, out _);
+        }
+
+        private static void LogChatCommandRequestReject(string reason)
+        {
+            Logger.Warn(
+                $"{ChatCommandRequestMarker} Action=Reject Reason={reason}",
+                "ChatCommand");
+        }
+
+        // 同一プロトコルのTOH4Eクライアントだけに設定を分割送信する。
+        // バニラ、旧TOH4E、他MODには設定CustomRPCを送信しない。
+        public static void SyncCustomSettingsRPC(int targetId = -1)
+        {
+            var client = AmongUsClient.Instance;
+            var localPlayer = PlayerControl.LocalPlayer;
+
+            if (client == null ||
+                !client.AmHost ||
+                localPlayer == null ||
+                PlayerControl.AllPlayerControls.Count <= 1)
+            {
+                return;
+            }
+
+            if (targetId >= 0)
+            {
+                if (targetId == client.ClientId) return;
+
+                var targetClient = client.allClients.ToArray()
+                    .FirstOrDefault(data => data.Id == targetId);
+
+                if (targetClient?.Character == null ||
+                    !IsCompatibleVersion(targetClient.Character.PlayerId))
+                {
+                    return;
+                }
+
+                SendCustomSettingsToClient(localPlayer, targetId);
+                return;
+            }
+
+            foreach (var targetClient in client.allClients.ToArray())
+            {
+                if (targetClient?.Character == null ||
+                    targetClient.Id == client.ClientId)
+                {
+                    continue;
+                }
+
+                if (!IsCompatibleVersion(targetClient.Character.PlayerId)) {
+                    continue;
+                }
+
+                SendCustomSettingsToClient(localPlayer, targetClient.Id);
+            }
+        }
+
+        private static void SendCustomSettingsToClient(
+            PlayerControl localPlayer,
+            int targetClientId)
+        {
+            var totalOptions = OptionItem.AllOptions.Count;
+
+            for (
+                var startIndex = 0;
+                startIndex < totalOptions;
+                startIndex += MaxOptionsPerSyncPacket
+            )
+            {
+                var optionCount =
+                    Math.Min(
+                        MaxOptionsPerSyncPacket,
+                        totalOptions - startIndex
+                    );
+
+                var writer =
+                    AmongUsClient.Instance.StartRpcImmediately(
+                        localPlayer.NetId,
+                        (byte)CustomRPC.SyncCustomSettings,
+                        SendOption.Reliable,
+                        targetClientId
+                    );
+
+                writer.WritePacked(startIndex);
+                writer.WritePacked(optionCount);
+
+                for (
+                    var index = 0;
+                    index < optionCount;
+                    index++
+                )
+                {
+                    writer.WritePacked(
+                        OptionItem.AllOptions[startIndex + index].GetValue()
+                    );
+                }
+
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+                Logger.Info(
+                    $"target={targetClientId}, start={startIndex}, count={optionCount}, total={totalOptions}",
+                    "SyncCustomSettings"
+                );
+            }
         }
         public static void PlaySoundRPC(byte PlayerID, Sounds sound)
         {
@@ -301,15 +721,37 @@ namespace TownOfHostForE
             AmongUsClient.Instance.FinishRpcImmediately(writer);
             player.Exiled();
         }
-        public static async void RpcVersionCheck()
+        public static void RpcVersionCheck()
         {
-            while (PlayerControl.LocalPlayer == null) await Task.Delay(500);
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.VersionCheck, SendOption.Reliable);
+            var localPlayer = PlayerControl.LocalPlayer;
+            if (localPlayer == null)
+            {
+                _ = new LateTask(RpcVersionCheck, 0.5f, "Wait LocalPlayer Version Check");
+                return;
+            }
+
+            var client = AmongUsClient.Instance;
+            if (client == null)
+            {
+                _ = new LateTask(RpcVersionCheck, 0.5f, "Wait AmongUsClient Version Check");
+                return;
+            }
+
+            MessageWriter writer = client.StartRpcImmediately(
+                localPlayer.NetId,
+                (byte)CustomRPC.VersionCheck,
+                SendOption.Reliable);
+
             writer.Write(Main.PluginVersion);
-            writer.Write($"{ThisAssembly.Git.Commit}({ThisAssembly.Git.Branch})");
+            writer.Write(CurrentVersionTag);
             writer.Write(Main.ForkId);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
-            Main.playerVersion[PlayerControl.LocalPlayer.PlayerId] = new PlayerVersion(Main.PluginVersion, $"{ThisAssembly.Git.Commit}({ThisAssembly.Git.Branch})", Main.ForkId);
+
+            client.FinishRpcImmediately(writer);
+
+            Main.playerVersion[localPlayer.PlayerId] = new PlayerVersion(
+                Main.PluginVersion,
+                CurrentVersionTag,
+                Main.ForkId);
         }
         public static void SendDeathReason(byte playerId, CustomDeathReason deathReason)
         {

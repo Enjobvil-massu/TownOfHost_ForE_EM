@@ -36,7 +36,8 @@ public static class GuessManager
             string name = pc.GetRealName();
             text += $"\n{id} → {name}";
         }
-        return text;
+        // GUESS_ID_LIST_BOTTOM_PADDING: Add one transparent rendered glyph line for vanilla chat bubble bottom padding.
+        return text + "\n<color=#00000000>.</color>";
     }
 
     public static bool CheckCommond(ref string msg, string command, bool exact = true)
@@ -96,7 +97,6 @@ public static class GuessManager
     public static bool NotGueesFlag = false;
     public static bool GuesserMsg(PlayerControl pc, string msg, bool isUI = false)
     {
-        var originMsg = msg;
 
         if (!AmongUsClient.Instance.AmHost) return false;
         if (!GameStates.IsInGame || pc == null) return false;
@@ -105,7 +105,8 @@ public static class GuessManager
         int operate = 0; // 1:ID 2:猜测
         msg = msg.ToLower().TrimStart().TrimEnd();
         if (CheckCommond(ref msg, "id|guesslist|g")) operate = 1;
-        else if (CheckCommond(ref msg, "shoot|guess|bet|st|gs|bt", false)) operate = 2;
+        // GUESS_COMMAND_BT_ONLY_PERMANENT: Guessの正式入力は /cmd bt のみ
+        else if (CheckCommond(ref msg, "bt", false)) operate = 2;
         else return false;
 
         if (!pc.IsAlive())
@@ -122,19 +123,17 @@ public static class GuessManager
         }
         else if (operate == 2)
         {
-            if (
-            (pc.Is(CustomRoles.NiceGuesser) && NiceGuesser.GGTryHideMsg.GetBool()) ||
-            (pc.Is(CustomRoles.Leopard) && Leopard.AGTryHideMsg.GetBool()) ||
-            (pc.Is(CustomRoles.EvilGuesser) && EvilGuesser.EGTryHideMsg.GetBool()) ||
-            (pc.Is(CustomRoles.Gambler) && Gambler.GaTryHideMsg.GetBool())
-            )
+            // GOD_GAMBLER_COMMAND_GUARD_PERMANENT: 神はゲッサー能力を使用できない
+            if (pc.Is(CustomRoles.God)) return true;
+            if (Options.IsFirstTurnMeetingAbilityBlocked)
             {
-                new LateTask(() =>
-                {
-                    TryHideMsg();
-                }, 0.1f, "TryGuessHide");
+                var blockedMessage = GetString("FirstTurnMeetingCantability");
+                if (!isUI) Utils.SendMessage(blockedMessage, pc.PlayerId);
+                else pc.ShowPopUp(blockedMessage);
+                return true;
             }
-            else if (pc.AmOwner && !isUI) Utils.SendMessage(originMsg, 255, pc.GetRealName());
+
+            // GUESS_FAKE_CHAT_REMOVAL_PERMANENT: /cmd経路では入力が公開されないため疑似チャットとコマンド再公開を停止
 
             if (!MsgToPlayerAndRole(msg, out byte targetId, out CustomRoles role, out string error))
             {
@@ -145,6 +144,15 @@ public static class GuessManager
 
             //ニムロッドなど、指定条件で賭けれないときに呼ばれる。
             if (NotGueesFlag) return true;
+
+            // SCALES_PORT_PERMANENT: 設定ON時は天秤対象外へのGuessを無効化する
+            if (Scales.IsMeetingAbilityTargetBlocked(targetId))
+            {
+                var blockedMessage = Scales.GetAbilityBlockedMessage();
+                if (!isUI) Utils.SendMessage(blockedMessage, pc.PlayerId);
+                else pc.ShowPopUp(blockedMessage);
+                return true;
+            }
 
             var target = Utils.GetPlayerById(targetId);
             if (target != null)
@@ -471,43 +479,6 @@ public static class GuessManager
         }
 
         return GetString(Enum.GetName(typeof(CustomRoles), role)).TrimStart('*').ToLower().Trim().Replace(" ", string.Empty).RemoveHtmlTags();
-    }
-
-    public static void TryHideMsg()
-    {
-        ChatUpdatePatch.DoBlockChat = true;
-        List<CustomRoles> roles = Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x is not CustomRoles.NotAssigned).ToList();
-        var rd = IRandom.Instance;
-        string msg;
-        string[] command = new string[] {"bt"};
-        for (int i = 0; i < 20; i++)
-        {
-            msg = "/";
-            if (rd.Next(1, 100) < 20)
-            {
-                msg += "id";
-            }
-            else
-            {
-                msg += command[rd.Next(0, command.Length - 1)];
-                msg += rd.Next(1, 100) < 50 ? string.Empty : " ";
-                msg += rd.Next(0, 15).ToString();
-                msg += rd.Next(1, 100) < 50 ? string.Empty : " ";
-                CustomRoles role = roles[rd.Next(0, roles.Count())];
-                msg += rd.Next(1, 100) < 50 ? string.Empty : " ";
-                msg += Utils.GetRoleName(role);
-            }
-            var player = Main.AllAlivePlayerControls.ToArray()[rd.Next(0, Main.AllAlivePlayerControls.Count())];
-            DestroyableSingleton<HudManager>.Instance.Chat.AddChat(player, msg);
-            var writer = CustomRpcSender.Create("MessagesToSend", SendOption.None);
-            writer.StartMessage(-1);
-            writer.StartRpc(player.NetId, (byte)RpcCalls.SendChat)
-                .Write(msg)
-                .EndRpc();
-            writer.EndMessage();
-            writer.SendMessage();
-        }
-        ChatUpdatePatch.DoBlockChat = false;
     }
 
     private static void SendRPC(int playerId, CustomRoles role)

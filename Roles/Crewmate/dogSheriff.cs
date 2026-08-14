@@ -54,7 +54,9 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
 
     private nowState NowState = nowState.ready;
     private float UpdateTime = 60f;
-    private string nowString = "";
+    private bool MeetingCooldownPending = false;
+    private int LastCooldownDisplaySeconds = int.MinValue;
+    private nowState LastCooldownDisplayState = (nowState)(-1);
     enum OptionName
     {
         SheriffMisfireKillsTarget,
@@ -161,15 +163,33 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
 
         ShotLimit = ShotLimitOpt.GetInt();
         NowState = nowState.ready;
-        nowString = "Wait";
+        ResetCooldownDisplayCache();
         Logger.Info($"{Utils.GetPlayerById(playerId)?.GetNameWithRole()} : 残り{ShotLimit}発", "Sheriff");
+    }
+
+    public override void OnDestroy()
+    {
+        ResetCooldownDisplayCache();
+    }
+
+    private void PrepareMeetingCooldown(string timing)
+    {
+        UpdateTime = CurrentKillCooldown;
+        MeetingCooldownPending = true;
+        NowState = nowState.ready;
+        ResetCooldownDisplayCache();
+        Logger.Info($"{Player.GetNameWithRole()} : {timing}クールダウン開始待機を設定", "DogSheriffMeetingCooldown");
+        NotifyCooldownDisplayIfChanged();
+    }
+
+    public override void OnStartMeeting()
+    {
+        PrepareMeetingCooldown("会議開始時に");
     }
 
     public override void AfterMeetingTasks()
     {
-        NowState = nowState.ready;
-        nowString = "Wait";
-        Utils.NotifyRoles(Player);
+        PrepareMeetingCooldown("会議終了時に");
     }
     private void SendRPC()
     {
@@ -238,20 +258,67 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
         target.RpcMurderPlayer(target);
         Utils.MarkEveryoneDirtySettings();
         SendRPC();
-        nowString = ShotLimit <= 0 ? "" : "Wait";
         NowState = nowState.ready;
+        ResetCooldownDisplayCache();
         Utils.NotifyRoles();
+        RecordCooldownDisplayState();
     }
 
-    public override string GetProgressText(bool comms = false) => Utils.ColorString(CanUseKillButton() ? Color.yellow : Color.gray, $"({ShotLimit})");
+    private int GetCooldownDisplaySeconds()
+        => CurrentKillCooldown <= 0f
+            ? 0
+            : Mathf.Max(1, Mathf.CeilToInt(UpdateTime));
+
+    private void ResetCooldownDisplayCache()
+    {
+        LastCooldownDisplaySeconds = int.MinValue;
+        LastCooldownDisplayState = (nowState)(-1);
+    }
+
+    private void RecordCooldownDisplayState()
+    {
+        LastCooldownDisplaySeconds = GetCooldownDisplaySeconds();
+        LastCooldownDisplayState = NowState;
+    }
+
+    private void NotifyCooldownDisplayIfChanged()
+    {
+        var displaySeconds = GetCooldownDisplaySeconds();
+        if (LastCooldownDisplaySeconds == displaySeconds &&
+            LastCooldownDisplayState == NowState)
+        {
+            return;
+        }
+
+        LastCooldownDisplaySeconds = displaySeconds;
+        LastCooldownDisplayState = NowState;
+
+        if (AmongUsClient.Instance.AmHost)
+            Utils.NotifyRoles(SpecifySeer: Player, NoCache: true);
+    }
+
+    public override string GetProgressText(bool comms = false)
+    {
+        var shotLimitText = Utils.ColorString(
+            CanUseKillButton() ? Color.yellow : Color.gray,
+            $"({ShotLimit})");
+
+        if (ShotLimit <= 0)
+            return shotLimitText;
+
+        var cooldownText = NowState == nowState.GO
+            ? "【GO!!】"
+            : $"【{GetCooldownDisplaySeconds()}】";
+        var cooldownColor = NowState == nowState.GO
+            ? Color.green
+            : Color.yellow;
+
+        return Utils.ColorString(cooldownColor, cooldownText) + shotLimitText;
+    }
 
     public override string GetSuffix(PlayerControl seer, PlayerControl seen = null, bool isForMeeting = false)
     {
-        if (isForMeeting) return "";
-        seen ??= seer;
-        if (seer != seen) return "";
-
-        return nowString;
+        return "";
     }
 
     public static bool CanBeKilledBy(PlayerControl player)
@@ -284,6 +351,20 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
     }
     public override void OnFixedUpdate(PlayerControl player)
     {
+        if (GameStates.IsMeeting) return;
+
+        if (MeetingCooldownPending)
+        {
+            if (Player == null || !Player.CanMove) return;
+
+            MeetingCooldownPending = false;
+            UpdateTime = CurrentKillCooldown;
+            ResetCooldownDisplayCache();
+            Logger.Info($"{Player.GetNameWithRole()} : 操作可能復帰時にクールダウンを{CurrentKillCooldown}秒で開始", "DogSheriffMeetingCooldown");
+            NotifyCooldownDisplayIfChanged();
+            return;
+        }
+
         if (NowState == nowState.GO || ShotLimit <= 0) return;
 
         UpdateTime -= Time.fixedDeltaTime;
@@ -293,8 +374,9 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
         if (UpdateTime == CurrentKillCooldown)
         {
             NowState = nowState.GO;
-            nowString = "GO!";
-            Utils.NotifyRoles();
+            Logger.Info($"{Player.GetNameWithRole()} : クールダウン完了 GO", "DogSheriffMeetingCooldown");
         }
+
+        NotifyCooldownDisplayIfChanged();
     }
 }

@@ -8,6 +8,41 @@ using TownOfHostForE.Roles.Core;
 using TownOfHostForE.Roles.Crewmate;
 
 namespace TownOfHostForE.Patches;
+// DOG_SHERIFF_PET_IMMEDIATE_CLICK_PERMANENT
+// ドッグシェリフ本人のPetButtonだけHoldToUseを無効化し、短押しで通常DoClick経路へ進める。
+[HarmonyPatch(typeof(PassiveButton), "Update")]
+class DogSheriffPetImmediateClickPatch
+{
+private static readonly Dictionary<int, bool> OriginalHoldToUse = new();
+
+    public static void Prefix(PassiveButton __instance)
+    {
+        if (__instance.TargetActionButton is not PetButton) return;
+
+        var instanceId = __instance.GetInstanceID();
+        var localPlayer = PlayerControl.LocalPlayer;
+        if (localPlayer != null &&
+            GameStates.IsInGame &&
+            localPlayer.Is(CustomRoles.DogSheriff))
+        {
+            if (!OriginalHoldToUse.ContainsKey(instanceId))
+                OriginalHoldToUse[instanceId] = __instance.HoldToUse;
+
+            if (__instance.HoldToUse)
+            {
+                __instance.HoldToUse = false;
+}
+            return;
+        }
+
+        if (OriginalHoldToUse.TryGetValue(instanceId, out var originalHoldToUse))
+        {
+            __instance.HoldToUse = originalHoldToUse;
+            OriginalHoldToUse.Remove(instanceId);
+}
+    }
+}
+
 /*
  * HUGE THANKS TO
  * ImaMapleTree / 단풍잎
@@ -21,7 +56,7 @@ class LocalPetPatch
 {
     public static void Prefix(PlayerControl __instance)
     {
-        if (!GameStates.IsLobby)
+if (!GameStates.IsLobby)
         {
             if (!(AmongUsClient.Instance.AmHost && AmongUsClient.Instance.AmClient)) return;
             //__instance.petting = true;
@@ -44,14 +79,50 @@ class LocalPetPatch
 [HarmonyPatch(typeof(PlayerPhysics), nameof(PlayerPhysics.HandleRpc))]
 class ExternalRpcPetPatch
 {
+    private static readonly Dictionary<byte, long> LocalPetDispatchTicks = new();
+    private static readonly long DuplicateWindowTicks =
+        System.TimeSpan.FromSeconds(1).Ticks;
     public static void Prefix(PlayerPhysics __instance, [HarmonyArgument(0)] byte callId,
         [HarmonyArgument(1)] MessageReader reader)
     {
-        if (!AmongUsClient.Instance.AmHost || GameStates.IsLobby) return;
         var rpcType = callId == 51 ? RpcCalls.Pet : (RpcCalls)callId;
         if (rpcType != RpcCalls.Pet) return;
 
         PlayerControl playerControl = __instance.myPlayer;
+if (!AmongUsClient.Instance.AmHost || GameStates.IsLobby) return;
+
+        var suppressDuplicateAbility = false;
+        var nowTicks = System.DateTime.UtcNow.Ticks;
+
+        // callId 51はホスト自身のTryPet Prefixから行う先行処理。
+        // 直後に本来のPet RPCが到着した場合だけ、能力処理を重複させない。
+        if (callId == 51)
+        {
+            LocalPetDispatchTicks[playerControl.PlayerId] = nowTicks;
+        }
+        else if (LocalPetDispatchTicks.TryGetValue(
+                     playerControl.PlayerId,
+                     out var localDispatchTicks))
+        {
+            LocalPetDispatchTicks.Remove(playerControl.PlayerId);
+
+            var elapsedTicks = nowTicks - localDispatchTicks;
+
+            suppressDuplicateAbility =
+                elapsedTicks >= 0 &&
+                elapsedTicks <= DuplicateWindowTicks;
+        }
+
+        // NYAOHA_PET_LONGPRESS_PERMANENT
+        // 発射準備中に長押しで再送されるPet RPCは、
+        // CancelPet・同期・能力本体より前に破棄する。
+        if (playerControl.GetRoleClass() is
+                TownOfHostForE.Roles.Animals.Nyaoha nyaoha &&
+            nyaoha.IsPetAbilityActive)
+        {
+            return;
+        }
+
         //if (callId == 51 && playerControl.GetCustomRole().PetActivatedAbility() && GameStates.IsInGame)
         if (callId == 51 && GameStates.IsInGame &&
             (playerControl.GetCustomRole().PetActivatedAbility()
@@ -62,13 +133,20 @@ class ExternalRpcPetPatch
 
         if (callId != 51)
         {
-            CustomRpcSender sender = CustomRpcSender.Create("SelectRoles Sender", SendOption.Reliable);
-
+            // PET003_REMOVE_UNUSED_CUSTOMRPCSENDER_PERMANENT:
+            // ここではCustomRpcSenderを使用しておらず、Create時のMessageWriterだけが未返却になるため生成しない。
             if (AmongUsClient.Instance.AmHost && playerControl.GetCustomRole().PetActivatedAbility() && GameStates.IsInGame)
                 __instance.CancelPet();
             foreach (PlayerControl player in PlayerControl.AllPlayerControls)
                 AmongUsClient.Instance.FinishRpcImmediately(AmongUsClient.Instance.StartRpcImmediately(__instance.NetId, 50, SendOption.None, player.GetClientId()));
         }
+
+        // 実Pet RPC側ではCancelPetと同期処理を従来どおり実行し、
+        // 先行処理済みの場合だけ能力本体の二重実行を止める。
+        if (suppressDuplicateAbility) return;
+
+        // ROLEBUGTRACE_STAGE1A_PERMANENT: accepted pet dispatch only
+        RoleBugTrace.Pet(playerControl, callId == 51 ? "HostLocal" : "Rpc");
 
         GreatDetective.TargetOnPetsButton(playerControl);
 
@@ -76,6 +154,8 @@ class ExternalRpcPetPatch
         if (OneTimeAbilittyController.CheckSettingAbilitys(playerControl.PlayerId, OneTimeAbilittyController.OneTimeAbility.petKill))
         {
             OneTimeAbilittyController.ActivationPetAbillitys(playerControl);
+            // ROLEBUGTRACE_PET_AFTER_DISPATCH_PERMANENT: one-time ability After snapshot
+            RoleBugTrace.PetAfter(playerControl, callId == 51 ? "HostLocal-OneTime" : "Rpc-OneTime");
             return;
         }
 
@@ -84,6 +164,8 @@ class ExternalRpcPetPatch
         {
             playerControl.GetRoleClass().OnTouchPet(playerControl);
         }
+        // ROLEBUGTRACE_PET_AFTER_DISPATCH_PERMANENT: normal role After snapshot
+        RoleBugTrace.PetAfter(playerControl, callId == 51 ? "HostLocal-Role" : "Rpc-Role");
     }
 }
 public static class PetSettings
@@ -96,31 +178,72 @@ public static class PetSettings
     [GameModuleInitializer]
     public static void GameInit()
     {
+
         petNotSetPlayerIds.Clear();
+
     }
 
 
     public static void CheckNotHasPetPlayers()
     {
+
         foreach (var pc in Main.AllPlayerControls)
         {
             if (!pc.CanPet())
             {
                 petNotSetPlayerIds.Add(pc.PlayerId);
             }
+
         }
+
     }
 
     //ペット付けてない人がいたらペットつけるための処理
     public static void SetPetRoleInPet()
     {
-        if (AllPetAssign == false) return;
+
+        if (AllPetAssign == false)
+        {
+            return;
+        }
 
         foreach (byte playerId in petNotSetPlayerIds)
         {
             var pc = Utils.GetPlayerById(playerId);
-            pc.RpcSetPet(FREEPET_STRING);
+            // PETSETTINGS_STALE_PLAYER_NULL_GUARD_PERMANENT_SET
+            // ShipStatus.Start後の切断などで保存済みPlayerIdが取得不能になった場合だけ安全に除外する。
+            if (pc == null)
+            {
+                Logger.Warn($"RentalPet.SetPet skipped: PlayerControl missing, PlayerId={playerId}", "PetSettings");
+                continue;
+            }
+
+            // ホスト所有でないPlayerControlにも届くSetPetStr形式で送信する。
+            pc.SetPet(FREEPET_STRING);
+            pc.Data.DefaultOutfit.PetSequenceId += 10;
+
+            var rentalPetSequenceId =
+                pc.GetNextRpcSequenceId(RpcCalls.SetPetStr);
+
+            var rentalPetSender = CustomRpcSender.Create(
+                $"RentalPet.SetPetStr(PlayerId={playerId})",
+                Hazel.SendOption.Reliable
+            );
+
+            rentalPetSender
+                .AutoStartRpc(
+                    pc.NetId,
+                    (byte)RpcCalls.SetPetStr
+                )
+                .Write(FREEPET_STRING)
+                .Write(rentalPetSequenceId)
+                .EndRpc();
+
+            rentalPetSender.SendMessage();
+
+
         }
+
     }
 
     public static void RemovePetSet()
@@ -131,7 +254,19 @@ public static class PetSettings
             foreach (byte playerId in petNotSetPlayerIds)
             {
                 var pc = Utils.GetPlayerById(playerId);
-                if (!pc.IsAlive()) break;
+
+                // PETSETTINGS_STALE_PLAYER_NULL_GUARD_PERMANENT_REMOVE
+                // SetPetRoleInPetと同じ保存済みIDを使うため、切断済みPlayerControlだけを安全に除外する。
+                if (pc == null)
+                {
+                    Logger.Warn($"RentalPet.Remove skipped: PlayerControl missing, PlayerId={playerId}", "PetSettings");
+                    continue;
+                }
+
+                // PET001_REMOVE_DEAD_CONTINUE_PERMANENT:
+                // 死亡者だけを除外し、後続の生存プレイヤーのRental Pet解除を継続する。
+                if (!pc.IsAlive()) continue;
+
                 pc.RpcSetPet("");
             }
         }
@@ -160,5 +295,6 @@ public static class PetSettings
                 AllPetAssign = true;
                 break;
         }
+
     }
 }

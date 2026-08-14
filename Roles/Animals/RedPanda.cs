@@ -27,7 +27,8 @@ namespace TownOfHostForE.Roles.Animals
                 "レッサーパンダ",
                 "#FF8C00",
                 true,
-                countType: CountTypes.Crew,
+            // FACTION_COUNT_SEMANTICS_PERMANENT: Animals通常勝利の生存カウントへ参加
+                countType: CountTypes.Animals,
             introSound: () => ShipStatus.Instance.CommonTasks.Where(task => task.TaskType == TaskTypes.FixWiring).FirstOrDefault().MinigamePrefab.OpenSound
             );
         public RedPanda(PlayerControl player)
@@ -136,6 +137,17 @@ namespace TownOfHostForE.Roles.Animals
             foreach (var animId in AnimalsId)
             {
                 var pc = Utils.GetPlayerById(animId);
+                // REDPANDA_LIFECYCLE_GUARD_PERMANENT: 保存対象の切断・消失だけを局所保護
+                if (pc == null
+                    || pc.Data == null
+                    || pc.Data.Disconnected)
+                {
+                    Logger.Warn(
+                        $"死亡時付与対象が切断・消失しているためスキップ: PlayerId={animId}",
+                        "レッサーパンダ");
+                    continue;
+                }
+
                 SetSubRole(pc);
             }
             TargetId = byte.MaxValue;
@@ -186,7 +198,13 @@ namespace TownOfHostForE.Roles.Animals
             var cRole = seer.GetCustomRole();
             if (cRole == CustomRoles.RedPanda || !cRole.IsAnimals()) return "";
 
-            string targetSet = "\n<size=75%>" + Utils.GetPlayerById(TargetId).name + "は僕らの敵だ！</size>";
+            // REDPANDA_LIFECYCLE_GUARD_PERMANENT: 保存した敵対象の切断・消失だけを局所保護
+            var targetControl = Utils.GetPlayerById(TargetId);
+            if (targetControl == null
+                || targetControl.Data == null
+                || targetControl.Data.Disconnected) return "";
+
+            string targetSet = "\n<size=75%>" + targetControl.name + "は僕らの敵だ！</size>";
 
             return Utils.ColorString(RoleInfo.RoleColor, targetSet);
         }

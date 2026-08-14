@@ -25,7 +25,8 @@ public sealed class Dolphin : RoleBase
             SetupOptionItem,
             "イルカ",
             "#FF8C00",
-            countType:CountTypes.Crew
+            // FACTION_COUNT_SEMANTICS_PERMANENT: Animals通常勝利の生存カウントへ参加
+            countType: CountTypes.Animals
             //introSound: () => ShipStatus.Instance.CommonTasks.Where(task => task.TaskType == TaskTypes.FixWiring).FirstOrDefault().MinigamePrefab.OpenSound
         );
     public Dolphin(PlayerControl player)

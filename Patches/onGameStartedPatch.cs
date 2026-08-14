@@ -137,9 +137,508 @@ namespace TownOfHostForE
     class SelectRolesPatch
     {
         private static bool AssignedStrayWolf = false;
+        private static readonly Dictionary<(byte SeerId, byte TargetId), RoleTypes> VanillaIntroRoleMap = new();
+
+        // CLIENTREADY_INTRO_BARRIER_AB_PHASE1:
+        // remote Vanilla viewerだけ、ClientReady後のRole配布rootを組み替える診断A/B。
+        // Host canonical NetworkedPlayerInfo.Disconnectedは変更せず、
+        // viewerにだけ1人のother-playerを一時Disconnectedとして見せる。
+        private const string ClientReadyBarrierMarker = "CLIENTREADY_INTRO_BARRIER_AB_PHASE1";
+        private const int ClientReadyBarrierMaxRootLength = 900;
+
+        private sealed class ClientReadyBarrierCapturedUInt16
+        {
+            public int Position { get; }
+
+            public ClientReadyBarrierCapturedUInt16(int position)
+            {
+                Position = position;
+            }
+        }
+
+        private static readonly Dictionary<byte, List<(PlayerControl Target, RoleTypes Role)>>
+            ClientReadyBarrierQueuedRoles = new();
+
+        internal static readonly Dictionary<byte, byte>
+            ClientReadyBarrierCandidateByViewer = new();
+
+        private static List<ClientReadyBarrierCapturedUInt16>? ClientReadyBarrierCapturedUInt16Writes;
+        private static IntPtr ClientReadyBarrierCapturedWriterPointer = IntPtr.Zero;
+
+        private static bool IsClientReadyBarrierViewer(PlayerControl seer)
+        {
+            return seer != null &&
+                   !seer.AmOwner &&
+                   seer.Data != null &&
+                   !seer.Data.Disconnected &&
+                   !seer.IsModClient();
+        }
+
+        private static void BeginClientReadyBarrierUInt16Capture(MessageWriter writer)
+        {
+            ClientReadyBarrierCapturedUInt16Writes = new();
+            ClientReadyBarrierCapturedWriterPointer = writer.Pointer;
+        }
+
+        private static List<ClientReadyBarrierCapturedUInt16> EndClientReadyBarrierUInt16Capture()
+        {
+            var result =
+                ClientReadyBarrierCapturedUInt16Writes ??
+                new List<ClientReadyBarrierCapturedUInt16>();
+
+            ClientReadyBarrierCapturedUInt16Writes = null;
+            ClientReadyBarrierCapturedWriterPointer = IntPtr.Zero;
+            return result;
+        }
+
+        internal static void CaptureClientReadyBarrierUInt16Write(
+            MessageWriter writer,
+            ushort value)
+        {
+            if (ClientReadyBarrierCapturedUInt16Writes == null ||
+                ClientReadyBarrierCapturedWriterPointer == IntPtr.Zero ||
+                writer.Pointer != ClientReadyBarrierCapturedWriterPointer)
+            {
+                return;
+            }
+
+            ClientReadyBarrierCapturedUInt16Writes.Add(
+                new ClientReadyBarrierCapturedUInt16(writer.Position));
+        }
+
+        private static bool TryAppendClientReadyBarrierSpoof(
+            CustomRpcSender sender,
+            NetworkedPlayerInfo source,
+            out int flagsPosition,
+            out byte beforeFlags,
+            out byte spoofFlags)
+        {
+            flagsPosition = -1;
+            beforeFlags = 0;
+            spoofFlags = 0;
+
+            if (sender == null ||
+                source == null ||
+                source.Disconnected ||
+                source.IsDead)
+            {
+                return false;
+            }
+
+            sender.stream.StartMessage(1);
+            sender.stream.WritePacked(source.NetId);
+
+            List<ClientReadyBarrierCapturedUInt16> captured;
+            BeginClientReadyBarrierUInt16Capture(sender.stream);
+            try
+            {
+                source.Serialize(sender.stream, true);
+            }
+            finally
+            {
+                captured = EndClientReadyBarrierUInt16Capture();
+            }
+
+            sender.stream.EndMessage();
+
+            if (captured.Count < 1)
+            {
+                Logger.Error(
+                    $"{ClientReadyBarrierMarker} no UInt16 role write " +
+                    $"PlayerId={source.PlayerId}",
+                    "ClientReadyIntroBarrierAB1");
+                return false;
+            }
+
+            var firstRoleWrite = captured.OrderBy(item => item.Position).First();
+            flagsPosition = firstRoleWrite.Position - 1;
+
+            if (flagsPosition < 0 ||
+                flagsPosition >= sender.stream.Length)
+            {
+                Logger.Error(
+                    $"{ClientReadyBarrierMarker} flags position invalid " +
+                    $"PlayerId={source.PlayerId} Position={flagsPosition} " +
+                    $"Length={sender.stream.Length}",
+                    "ClientReadyIntroBarrierAB1");
+                return false;
+            }
+
+            beforeFlags = sender.stream.Buffer[flagsPosition];
+
+            var expectedFlags = (byte)(
+                (source.Disconnected ? 0x01 : 0x00) |
+                (source.IsDead ? 0x04 : 0x00));
+
+            if ((beforeFlags & 0x05) != expectedFlags)
+            {
+                Logger.Error(
+                    $"{ClientReadyBarrierMarker} flags verification failed " +
+                    $"PlayerId={source.PlayerId} Position={flagsPosition} " +
+                    $"Actual={beforeFlags} ExpectedMask={expectedFlags}",
+                    "ClientReadyIntroBarrierAB1");
+                return false;
+            }
+
+            spoofFlags = (byte)(beforeFlags | 0x01);
+            sender.stream.Buffer[flagsPosition] = spoofFlags;
+            return true;
+        }
+
+        private static void AppendClientReadyBarrierCanonicalRestore(
+            CustomRpcSender sender,
+            NetworkedPlayerInfo source)
+        {
+            sender.stream.StartMessage(1);
+            sender.stream.WritePacked(source.NetId);
+            source.Serialize(sender.stream, true);
+            sender.stream.EndMessage();
+        }
+
+        private static void AppendClientReadyBarrierSetRole(
+            CustomRpcSender sender,
+            PlayerControl target,
+            RoleTypes role,
+            bool canOverride)
+        {
+            sender.StartRpc(target.NetId, RpcCalls.SetRole)
+                .Write((ushort)role)
+                .Write(canOverride)
+                .EndRpc();
+        }
+
+        private static CustomRpcSender BuildClientReadyBarrierFallbackSender(
+            PlayerControl viewer,
+            List<(PlayerControl Target, RoleTypes Role)> queuedRoles)
+        {
+            var fallback = new CustomRpcSender(
+                $"{viewer.name}'s ClientReady Barrier Fallback Sender",
+                SendOption.Reliable,
+                false);
+
+            fallback.StartMessage(viewer.GetClientId());
+
+            foreach (var queued in queuedRoles)
+            {
+                fallback.RpcSetRole(
+                    queued.Target,
+                    queued.Role,
+                    viewer.GetClientId());
+            }
+
+            fallback.EndMessage();
+            return fallback;
+        }
+
+        private static bool TryBuildClientReadyBarrierSender(
+            PlayerControl viewer,
+            List<(PlayerControl Target, RoleTypes Role)> queuedRoles,
+            out CustomRpcSender barrierSender,
+            out byte candidatePlayerId)
+        {
+            barrierSender = null!;
+            candidatePlayerId = byte.MaxValue;
+
+            var allTargets = Main.AllPlayerControls
+                .Where(target =>
+                    target != null &&
+                    target.Data != null)
+                .OrderBy(target => target.PlayerId)
+                .ToList();
+
+            if (allTargets.Count < 2 ||
+                !allTargets.Any(target => target.PlayerId == viewer.PlayerId) ||
+                queuedRoles == null ||
+                queuedRoles.Count == 0)
+            {
+                return false;
+            }
+
+            var queuedTargetIds =
+                queuedRoles
+                    .Where(item => item.Target != null)
+                    .Select(item => item.Target.PlayerId)
+                    .ToHashSet();
+
+            if (allTargets.Any(target =>
+                    !queuedTargetIds.Contains(target.PlayerId)))
+            {
+                Logger.Error(
+                    $"{ClientReadyBarrierMarker} incomplete role queue " +
+                    $"Viewer={viewer.PlayerId} " +
+                    $"Targets={allTargets.Count} QueuedTargetIds={queuedTargetIds.Count}",
+                    "ClientReadyIntroBarrierAB1");
+                return false;
+            }
+
+            var candidate = allTargets.FirstOrDefault(target =>
+                target.PlayerId != viewer.PlayerId &&
+                queuedTargetIds.Contains(target.PlayerId) &&
+                target.Data != null &&
+                !target.Data.Disconnected &&
+                !target.Data.IsDead &&
+                target.Data.Role != null);
+
+            if (candidate == null)
+            {
+                Logger.Error(
+                    $"{ClientReadyBarrierMarker} no barrier candidate " +
+                    $"Viewer={viewer.PlayerId}",
+                    "ClientReadyIntroBarrierAB1");
+                return false;
+            }
+
+            var sender = new CustomRpcSender(
+                $"{viewer.name}'s ClientReady Barrier Sender",
+                SendOption.Reliable,
+                false);
+
+            try
+            {
+                sender.StartMessage(viewer.GetClientId());
+
+                if (!TryAppendClientReadyBarrierSpoof(
+                        sender,
+                        candidate.Data,
+                        out var flagsPosition,
+                        out var beforeFlags,
+                        out var spoofFlags))
+                {
+                    sender.stream.Recycle();
+                    return false;
+                }
+
+                RoleTypes? finalSelfRole = null;
+                PlayerControl? self = null;
+
+                // 既存のviewer向けRole送信順を維持する。
+                // selfだけ最後へ移し、candidateだけcanOverride=trueで
+                // roleAssigned=falseを維持する。
+                foreach (var queued in queuedRoles)
+                {
+                    if (queued.Target == null) continue;
+
+                    if (queued.Target.PlayerId == viewer.PlayerId)
+                    {
+                        self = queued.Target;
+                        finalSelfRole = queued.Role;
+                        continue;
+                    }
+
+                    AppendClientReadyBarrierSetRole(
+                        sender,
+                        queued.Target,
+                        queued.Role,
+                        canOverride:
+                            queued.Target.PlayerId == candidate.PlayerId);
+                }
+
+                if (self == null || !finalSelfRole.HasValue)
+                {
+                    Logger.Error(
+                        $"{ClientReadyBarrierMarker} self role missing " +
+                        $"Viewer={viewer.PlayerId}",
+                        "ClientReadyIntroBarrierAB1");
+                    sender.stream.Recycle();
+                    return false;
+                }
+
+                // selfを最後に通常SetRole(false)で確定する。
+                // この瞬間、candidateだけroleAssigned=falseだが
+                // viewer上ではDisconnected=trueなのでnative All predicateが成立する。
+                AppendClientReadyBarrierSetRole(
+                    sender,
+                    self,
+                    finalSelfRole.Value,
+                    canOverride: false);
+
+                // CoShowIntro開始条件成立後、同一GameDataTo root内で
+                // Host canonical値をそのまま再serializeして即時restoreする。
+                AppendClientReadyBarrierCanonicalRestore(
+                    sender,
+                    candidate.Data);
+
+                sender.EndMessage();
+
+                if (sender.stream.Length > ClientReadyBarrierMaxRootLength)
+                {
+                    Logger.Error(
+                        $"{ClientReadyBarrierMarker} root too large " +
+                        $"Viewer={viewer.PlayerId} Candidate={candidate.PlayerId} " +
+                        $"Length={sender.stream.Length} " +
+                        $"Limit={ClientReadyBarrierMaxRootLength}",
+                        "ClientReadyIntroBarrierAB1");
+                    sender.stream.Recycle();
+                    return false;
+                }
+
+                barrierSender = sender;
+                candidatePlayerId = candidate.PlayerId;
+
+                Logger.Info(
+                    $"{ClientReadyBarrierMarker} prepared " +
+                    $"Viewer={viewer.PlayerId} ClientId={viewer.GetClientId()} " +
+                    $"Candidate={candidate.PlayerId} " +
+                    $"FlagsPosition={flagsPosition} " +
+                    $"Flags={beforeFlags}->{spoofFlags} " +
+                    $"RootLength={sender.stream.Length}",
+                    "ClientReadyIntroBarrierAB1");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Exception(ex, "ClientReadyIntroBarrierAB1");
+                if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                    sender.stream.Recycle();
+                return false;
+            }
+        }
+
+        private static void CompleteClientReadyBarrierRoleBundles(
+            Dictionary<byte, CustomRpcSender> senders)
+        {
+            foreach (var viewerId in
+                     ClientReadyBarrierQueuedRoles.Keys
+                         .OrderBy(id => id)
+                         .ToArray())
+            {
+                var viewer = Utils.GetPlayerById(viewerId);
+                if (viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    !senders.TryGetValue(viewerId, out var oldSender))
+                {
+                    continue;
+                }
+
+                var queuedRoles =
+                    ClientReadyBarrierQueuedRoles[viewerId];
+
+                CustomRpcSender replacement;
+
+                if (TryBuildClientReadyBarrierSender(
+                        viewer,
+                        queuedRoles,
+                        out var barrierSender,
+                        out var candidatePlayerId))
+                {
+                    replacement = barrierSender;
+                    ClientReadyBarrierCandidateByViewer[viewerId] =
+                        candidatePlayerId;
+
+                    Logger.Info(
+                        $"{ClientReadyBarrierMarker} ACTIVE " +
+                        $"Viewer={viewerId} Candidate={candidatePlayerId}",
+                        "ClientReadyIntroBarrierAB1");
+                }
+                else
+                {
+                    replacement =
+                        BuildClientReadyBarrierFallbackSender(
+                            viewer,
+                            queuedRoles);
+
+                    Logger.Error(
+                        $"{ClientReadyBarrierMarker} FALLBACK " +
+                        $"Viewer={viewerId} QueuedRoles={queuedRoles.Count}",
+                        "ClientReadyIntroBarrierAB1");
+                }
+
+                if (oldSender.CurrentState is not CustomRpcSender.State.Finished)
+                    oldSender.stream.Recycle();
+
+                senders[viewerId] = replacement;
+            }
+        }
+
+        private static void QueueOrSendVanillaIntroRole(
+            PlayerControl seer,
+            PlayerControl target,
+            RoleTypes role,
+            Dictionary<byte, CustomRpcSender> senders)
+        {
+            RecordVanillaIntroRole(
+                seer.PlayerId,
+                target.PlayerId,
+                role);
+
+            if (IsClientReadyBarrierViewer(seer))
+            {
+                if (!ClientReadyBarrierQueuedRoles.TryGetValue(
+                        seer.PlayerId,
+                        out var queuedRoles))
+                {
+                    queuedRoles = new();
+                    ClientReadyBarrierQueuedRoles[
+                        seer.PlayerId] = queuedRoles;
+                }
+
+                queuedRoles.Add((target, role));
+                return;
+            }
+
+            senders[seer.PlayerId].RpcSetRole(
+                target,
+                role,
+                seer.GetClientId());
+        }
+
+        [HarmonyPatch]
+        private static class ClientReadyBarrierUInt16WritePatch
+        {
+            private static System.Reflection.MethodBase TargetMethod()
+            {
+                return AccessTools.Method(
+                    typeof(MessageWriter),
+                    nameof(MessageWriter.Write),
+                    new[] { typeof(ushort) })!;
+            }
+
+            public static void Prefix(
+                MessageWriter __instance,
+                [HarmonyArgument(0)] ushort value)
+            {
+                CaptureClientReadyBarrierUInt16Write(
+                    __instance,
+                    value);
+            }
+        }
+
+        private static void RecordVanillaIntroRole(byte seerId, byte targetId, RoleTypes role)
+        {
+            VanillaIntroRoleMap[(seerId, targetId)] = role;
+        }
+
+        // ExileDisplayRealPermanent:
+        // v600.67で記録済みのviewer x target RoleTypeを
+        // AntiBlackout安全化の正確な復元元として再利用する。
+        internal static bool TryGetExileDisplayRoleViewPermanent(
+            byte seerId,
+            byte targetId,
+            out RoleTypes role)
+        {
+            return VanillaIntroRoleMap.TryGetValue((seerId, targetId), out role);
+        }
+
+        // 通常死亡時のofficial Ghost Role変化だけを追従する。
+        // キーが存在しない場合は新規推測値を作らない。
+        internal static void UpdateExileDisplayRoleViewPermanent(
+            byte seerId,
+            byte targetId,
+            RoleTypes role)
+        {
+            var key = (seerId, targetId);
+            if (VanillaIntroRoleMap.ContainsKey(key))
+                VanillaIntroRoleMap[key] = role;
+        }
+
         public static void Prefix()
         {
             if (!AmongUsClient.Instance.AmHost) return;
+            VanillaIntroRoleMap.Clear();
+            ClientReadyBarrierQueuedRoles.Clear();
+            ClientReadyBarrierCandidateByViewer.Clear();
             //CustomRpcSenderとRpcSetRoleReplacerの初期化
             Dictionary<byte, CustomRpcSender> senders = new();
             foreach (var pc in Main.AllPlayerControls)
@@ -150,6 +649,8 @@ namespace TownOfHostForE
             }
             RpcSetRoleReplacer.StartReplace(senders);
 
+            // FACTION_COUNT_SEMANTICS_PERMANENT: Tuna動的陣営を役職抽選前に確定
+            TownOfHostForE.Roles.Neutral.Tuna.ApplyFactionSetting();
             RoleAssignManager.SelectAssignRoles();
 
             if (Options.CurrentGameMode != CustomGameMode.HideAndSeek)
@@ -196,19 +697,40 @@ namespace TownOfHostForE
 
                 MakeDesyncSender(senders, rolesMap);
             }
+            // ROLEBUGTRACE_STAGE1A_PERMANENT: custom role assignment snapshot
+            RoleBugTrace.GameStart();
             //以下、バニラ側の役職割り当てが入る
         }
+        internal static bool DeferRoleFinalization = false;
+
         public static void Postfix()
         {
             if (!AmongUsClient.Instance.AmHost) return;
-            RpcSetRoleReplacer.Release(); //保存していたSetRoleRpcを一気に書く
-            RpcSetRoleReplacer.senders.Do(kvp => kvp.Value.SendMessage());
+            if (DeferRoleFinalization) return;
 
-            // 不要なオブジェクトの削除
-            RpcSetRoleReplacer.senders = null;
-            RpcSetRoleReplacer.DesyncImpostorList = null;
-            RpcSetRoleReplacer.StoragedData = null;
+            CompleteRoleSelectionImmediately();
+        }
 
+        private static void CompleteRoleSelectionImmediately()
+        {
+            RpcSetRoleReplacer.SendAllImmediately();
+            RpcSetRoleReplacer.Cleanup();
+            FinalizeRoleSelection();
+        }
+
+        internal static System.Collections.IEnumerator CompleteRoleSelectionDeferred(
+            float intervalSeconds = 0.3f)
+        {
+            yield return RpcSetRoleReplacer.SendAllDeferred(
+                intervalSeconds
+            );
+
+            RpcSetRoleReplacer.Cleanup();
+            FinalizeRoleSelection();
+        }
+
+        public static void FinalizeRoleSelection()
+        {
             //Utils.ApplySuffix();
 
             var rand = IRandom.Instance;
@@ -397,6 +919,8 @@ namespace TownOfHostForE
                     {
                         foreach (var Addon in Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x.IsAddOn()))
                         {
+                            // GOD_GAMBLER_DIRECT_GUARD_PERMANENT
+                            if (pc.Is(CustomRoles.God) && Addon == CustomRoles.Gambler) continue;
                             if (Options.AddOnRoleOptions.TryGetValue((pc.GetCustomRole(), Addon), out var option) && option.GetBool())
                             {
                                 pc.RpcSetCustomRole(Addon);
@@ -545,7 +1069,11 @@ namespace TownOfHostForE
                 {
                     if (rolesMap.TryGetValue((seer.PlayerId, target.PlayerId), out var role))
                     {
-                        sender.RpcSetRole(seer, role, target.GetClientId());
+                        QueueOrSendVanillaIntroRole(
+                            seer,
+                            target,
+                            role,
+                            senders);
                     }
                 }
             }
@@ -635,8 +1163,100 @@ namespace TownOfHostForE
 
             return AssignedPlayers;
         }
+        // GAMBLER_FACTION_ASSIGN_AB_V1:
+        private static int GetGamblerFactionIndex(CustomRoles mainRole)
+        {
+            // 特殊陣営を先に判定して分類の重複を避ける。
+            if (mainRole.IsAnimals()) return 4;
+            if (mainRole.IsMadmate()) return 1;
+            if (mainRole.IsImpostor()) return 0;
+            if (mainRole.IsNeutral()) return 2;
+            if (mainRole.IsCrewmate()) return 3;
+            return -1;
+        }
+
+        private static int GetGamblerFactionMaximum(int factionIndex)
+        {
+            return factionIndex switch
+            {
+                0 => TownOfHostForE.Roles.AddOns.NotCrew.Gambler.ImpostorMaximum.GetInt(),
+                1 => TownOfHostForE.Roles.AddOns.NotCrew.Gambler.MadmateMaximum.GetInt(),
+                2 => TownOfHostForE.Roles.AddOns.NotCrew.Gambler.NeutralMaximum.GetInt(),
+                3 => TownOfHostForE.Roles.AddOns.NotCrew.Gambler.CrewmateMaximum.GetInt(),
+                4 => TownOfHostForE.Roles.AddOns.NotCrew.Gambler.AnimalsMaximum.GetInt(),
+                _ => 0,
+            };
+        }
+
+        // GAMBLER_FACTION_EXACT_B_PERMANENT:
+        // B仕様: 5陣営の設定人数をそれぞれ独立した配役目標として扱う。
+        // 既存Maximum(role.GetCount)はGamblerの共通Option UI互換のため残すが、
+        // 実際のGambler付与人数を制限しない。候補不足時のみ設定人数未満になる。
+        private static List<PlayerControl> AssignGamblerByFaction(int RawCount = -1)
+        {
+            _ = RawCount;
+
+            var candidates = Main.AllPlayerControls
+                .Where(pc =>
+                    pc != null &&
+                    pc.Data != null &&
+                    !pc.Data.Disconnected &&
+                    !pc.Is(CustomRoles.God) &&
+                    !pc.Is(CustomRoles.Gambler) &&
+                    GetGamblerFactionIndex(pc.GetCustomRole()) >= 0)
+                .Select(pc => pc!)
+                .ToList();
+
+            if (candidates.Count == 0) return null!;
+
+            var rand = IRandom.Instance;
+            List<PlayerControl> assignedPlayers = new();
+
+            for (var factionIndex = 0; factionIndex < 5; factionIndex++)
+            {
+                var requestedCount = Math.Max(GetGamblerFactionMaximum(factionIndex), 0);
+                if (requestedCount <= 0) continue;
+
+                var factionCandidates = candidates
+                    .Where(pc => GetGamblerFactionIndex(pc.GetCustomRole()) == factionIndex)
+                    .ToList();
+
+                var assignCount = Math.Min(requestedCount, factionCandidates.Count);
+
+                for (var i = 0; i < assignCount; i++)
+                {
+                    var player = factionCandidates[rand.Next(0, factionCandidates.Count)];
+                    factionCandidates.Remove(player);
+                    candidates.Remove(player);
+                    assignedPlayers.Add(player);
+
+                    // 旧NotCrew経路の対象だった陣営について従来の除外side-effectも維持する。
+                    Main.NotCrewAssignCount?.Remove(player);
+
+                    PlayerState.GetByPlayerId(player.PlayerId).SetSubRole(CustomRoles.Gambler);
+                    Logger.Info(
+                        "ギャンブラー陣営別指定配役:" +
+                        player.Data.PlayerName +
+                        " = " +
+                        player.GetCustomRole().ToString() +
+                        " + Gambler / Faction=" +
+                        factionIndex +
+                        " / Requested=" +
+                        requestedCount +
+                        " / AssignedIndex=" +
+                        (i + 1),
+                        "AssignSubRoles");
+                }
+            }
+
+            return assignedPlayers.Count > 0 ? assignedPlayers : null!;
+        }
+
         private static List<PlayerControl> AssignCustomSubRolesFromListfromNotCrew(CustomRoles role, int RawCount = -1)
         {
+            if (role == CustomRoles.Gambler)
+                return AssignGamblerByFaction(RawCount);
+
             Logger.Info("カウント数:" + Main.NotCrewAssignCount.Count, "AssignRoles");
             if (Main.NotCrewAssignCount == null || Main.NotCrewAssignCount.Count <= 0) return null;
             var rand = IRandom.Instance;
@@ -647,7 +1267,12 @@ namespace TownOfHostForE
 
             for (var i = 0; i < count; i++)
             {
-                var player = Main.NotCrewAssignCount[rand.Next(0, Main.NotCrewAssignCount.Count)];
+                // GOD_GAMBLER_LEGACY_GUARD_PERMANENT
+                var eligiblePlayers = role == CustomRoles.Gambler
+                    ? Main.NotCrewAssignCount.Where(pc => !pc.Is(CustomRoles.God)).ToList()
+                    : Main.NotCrewAssignCount;
+                if (eligiblePlayers.Count == 0) break;
+                var player = eligiblePlayers[rand.Next(0, eligiblePlayers.Count)];
                 AssignedPlayers.Add(player);
                 Main.NotCrewAssignCount.Remove(player);
                 PlayerState.GetByPlayerId(player.PlayerId).SetSubRole(role);
@@ -715,16 +1340,75 @@ namespace TownOfHostForE
                         {
                             if (seer.PlayerId == 0) continue;
                             var assignRole = DesyncImpostorList.Contains(seer.PlayerId) ? RoleTypes.Scientist : role;
-                            senders[seer.PlayerId].RpcSetRole(player, assignRole, seer.GetClientId());
+                            QueueOrSendVanillaIntroRole(
+                                seer,
+                                player,
+                                assignRole,
+                                senders);
                         }
                     }
                     else
                     {
-                        //ブロードキャストで送信
-                        senders[0].RpcSetRole(player, role);
+                        // ROLE_DISPATCH_TARGETED_PERMANENT
+                        // 通常Roleを非ホスト参加者ごとのtargeted senderへ送信
+                        foreach (var seer in Main.AllPlayerControls)
+                        {
+                            if (seer.AmOwner) continue;
+                            QueueOrSendVanillaIntroRole(
+                                seer,
+                                player,
+                                role,
+                                senders);
+                        }
                     }
                 }
+
+                CompleteClientReadyBarrierRoleBundles(senders);
                 doReplace = false;
+            }
+            public static void SendAllImmediately()
+            {
+                Release();
+
+                if (senders == null) return;
+
+                senders.Do(kvp => kvp.Value.SendMessage());
+            }
+            public static System.Collections.IEnumerator SendAllDeferred(
+                float intervalSeconds = 0.3f)
+            {
+                Release();
+
+                if (senders == null) yield break;
+
+                var senderIndex = 0;
+                foreach (var kvp in senders)
+                {
+                    Logger.Info(
+                        $"BEFORE Index={senderIndex}, SenderPlayerId={kvp.Key}, Interval={intervalSeconds}",
+                        "ROLE_DISPATCH_SEND_PERMANENT"
+                    );
+
+                    kvp.Value.SendMessage();
+
+                    Logger.Info(
+                        $"AFTER Index={senderIndex}, SenderPlayerId={kvp.Key}",
+                        "ROLE_DISPATCH_SEND_PERMANENT"
+                    );
+
+                    senderIndex++;
+
+                    yield return new UnityEngine.WaitForSecondsRealtime(
+                        intervalSeconds
+                    );
+                }
+            }
+            public static void Cleanup()
+            {
+                senders = null;
+                DesyncImpostorList = null;
+                StoragedData = null;
+                ClientReadyBarrierQueuedRoles.Clear();
             }
             public static void StartReplace(Dictionary<byte, CustomRpcSender> senders)
             {

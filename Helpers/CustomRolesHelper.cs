@@ -78,7 +78,9 @@ namespace TownOfHostForE
                 role is CustomRoles.Rainbow or
                 CustomRoles.Express or
                 CustomRoles.Metaton or
-                CustomRoles.OjouSama;
+                CustomRoles.OjouSama or
+                // ULTRASTAR_WHITE_CREW_PERMANENT: TOHK同様、確白役職としてゲッサー保護対象へ追加
+                CustomRoles.UltraStar;
         }
         public static bool IsVanilla(this CustomRoles role)
         {
@@ -150,6 +152,11 @@ namespace TownOfHostForE
         }
         public static bool IsDirectKillRole(this CustomRoles role)
         {
+            // ULTRASTAR_GUARD_MODE_PERMANENT:
+            // TOHKのKillPower 2相当。ガード適用設定OFF時だけ既存の直接キル扱いにする。
+            if (role == CustomRoles.UltraStar)
+                return Roles.Crewmate.UltraStar.IgnoresRoleGuards;
+
             return role is
                 CustomRoles.Arsonist or
                 CustomRoles.PlatonicLover or

@@ -36,7 +36,7 @@ CounselorInfoLong,"(Crewmates)\nSelect the target by using the vent after the ta
 TiikawaInfoLong,"(Crewmates)\nWhen you finish the task, you'll be confused and stuck for a few seconds. You're so cute little guy.",[クルー陣営]\nタスクを終えると戸惑って数秒間動けなくなっちゃうよ。ちいかわ可愛いね。,"(船员阵营)\n当你完成任务时 你会感到困惑并卡住几秒钟。 你是个小可爱 不是吗？"
 HachiwareInfoLong,"(Crewmates)\nThe Hachiware is cute and can handle everything with ease.",[クルー陣営]\n何でもそつなくこなせるハチワレ可愛いね。,"(船员阵营)\n一个可爱的小八哥 可以潇洒地处理一切"
 UsagiInfoLong,"(Crewmates)\nI'll kill players I meet on my own. The bunnies are cute too.",[クルー陣営]\n出会ったプレイヤーを勝手にキルするよ。うさぎも可愛いね。,"(船员阵营)\n我自己会杀死我遇到的玩家。 兔子也很可爱。"
-"NiceGuesserInfoLong","(Crewmates):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /id command to view the id of all players.",[クルー陣営]\nゲッサーの本領は議論中に発揮される。「/bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(船员阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/id指令查看所有玩家的编号。"
+"NiceGuesserInfoLong","(Crewmates):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /cmd bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /cmd id command to view the id of all players.",[クルー陣営]\nゲッサーの本領は議論中に発揮される。「/cmd bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(船员阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/cmd bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/cmd id指令查看所有玩家的编号。"
 "GreatDetectiveInfoLong","(Crewmates):\nGreat detectives demonstrate their abilities in voting and finding bodies. When the person you are voting for performs an action such as a kill, transformation, pet petting, etc., you will be notified of it at the time of the next meeting. If a corpse is found early, useful information about the corpse is obtained.",[クルー陣営]\n名探偵は投票と死体発見で能力を発揮する。\n投票先の相手がキル、変身、ペットを撫でるなどの行動を行ったとき、次の会議のタイミングでそれが通知される。\n早期に死体を発見した場合、その死体に関する有益な情報が手に入る。,"(船员阵营):\n侦探大师能够投票和寻找尸体。 当您投票支持的人进行了杀戮、变身或抚摸等行动时，您将在下次会议时收到通知。 如果提前发现了尸体，则会获得有关尸体的有用信息。"
 "MetatonInfoLong","(Crewmates):\nAfter a certain amount of time, energy will accumulate and you will be able to kill. Be careful as it can kill you indiscriminately. In addition, when energy accumulates, the body shines in rainbow colors.",[クルー陣営]\n一定時間経過でエネルギーが溜まりキルが出来るようになる。見境なくキルできるので慎重に。\n尚、エネルギーが溜まると身体が虹色に輝くよ。,"(船员阵营):\n經過一定時間後，能量就會積累起來，你就可以殺人了。 小心，因為它可能會不分青紅皂白地殺死你。 此外，當能量積累時，身體會發出彩虹色的光芒。"
 "DogSheriffInfoLong","(Crewmates):\nKill a nearby player by petting their pet. If the opponent is a crew member, it cannot be killed and will self-destruct.",[クルー陣営]\nペットを撫でることで近くにいるプレイヤーをキルする。相手がクルーの場合キルできず自爆する。,"(船员阵营):\n透過撫摸附近的玩家的寵物來殺死他們。 如果對手是船員，則無法殺死並且會自毀。"
@@ -76,7 +76,7 @@ TalktiveInfo,Words are cleverly concealed.,言葉は巧妙に隠すもの,文字
 ## Imposter役職説明ロング
 SuicideBomberInfoLong,"(Impostors)\nSelf-destruct by transforming. It might be fun to do it in a place where many people are nearby.",[インポスター陣営]\n我が名は爆裂魔！ この船を破壊しもの！！\n変身することで周囲を巻き込んで大爆発する。\n爆発後は力が抜けて動けないしキルする力もない。\nやってもいいけどやり返されるだろうよ。,"(内鬼阵营)\n通过变形自毁  在附近有很多人的地方做这件事可能会很有趣"言葉は巧妙に隠すもの
 CinderellaInfoLong,"(Impostors)\nThe real power comes after the transformation. After the transformation, the movement speed increases and the transformed object knows where it is. However, it is not possible to kill the target without transforming.",[インポスター陣営]\n本当の力は変身した後に発揮される。\n変身後移動速度が上がり、変身した対象がどこにいるか分かる。\nただし変身しないとキルできない。,"(内鬼阵营)\n真正的力量是在变身后表现出来的。 变身后，你的移动速度增加，你可以看到变身后的目标在哪里。 然而，不变身就不能杀人。
-"EvilGuesserInfoLong","(Impostors):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /id command to view the id of all players.",[インポスター陣営]\nゲッサーの本領は議論中に発揮される。「/bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(内鬼阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/id指令查看所有玩家的编号。"
+"EvilGuesserInfoLong","(Impostors):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /cmd bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /cmd id command to view the id of all players.",[インポスター陣営]\nゲッサーの本領は議論中に発揮される。「/cmd bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(内鬼阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/cmd bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/cmd id指令查看所有玩家的编号。"
 TalktiveInfoLong,"(Impostors)\nSpeak the subject words well during the meeting. You'll be able to kill cool faster during the turn.",[インポスター陣営]\n会議中にお題の言葉を上手く喋ろう。そのターン中キルクールが早くなるぞ。,"(内鬼阵营)\n在会议上好好说主题词。 在这个回合中、你的 killcool 速度会更快。"
 "TeleporterInfoLong","(Impostors):\nTransformation can be used to set up gates. Two gates can be connected by placing one on top of the other, and only the imposter can go to warp by climbing on the gate.",[インポスター陣営]\n変身することでゲートを設置できる。ゲートは二つ設置することで繋がり、インポスターのみがそのゲートに乗っかることでワープすることが出来る。,"(内鬼阵营):\n变形可以安装大门。 可以将两扇门连接起来，只有冒牌货才能在上面翘起。"
 "JapPupInfoLong","(Impostors):\nTransforming and performing a kill turns the target of the kill into a doll. The opponent who has been transformed into a doll will die if he does not meet the target of the transformation within a certain period of time.",[インポスター陣営]\n変身してキルを行うことでキルの対象を人形に変える。人形に変えられた相手は一定時間以内に変身対象に出会わないと死んでしまう。,"(内鬼阵营):\n变身并实施击杀后，击杀目标会变成玩偶。 被变成玩偶的对手如果在一定时间内没有遇到变身目标，就会死亡。"
@@ -142,7 +142,7 @@ BrakiInfo,Who wants to explode?,爆発したい奴は誰だ？,谁想爆炸？
 BrakiInfoLong,"(Animals)\nIf you try to kill the target、 you will be coated with slime mold instead. The player will not get a kill as it is, but the next time he kills someone、the player with the slime mold applied will explode in a big way. The slime mold is only active this turn. You are not involved in this explosion.",[アニマルズ陣営]\n対象をキルしようとすると代わりに粘菌を塗りたくる。このままではキルが出来ないが、次に誰かをキルする際には粘菌が塗られたプレイヤーが大爆発するだろう。粘菌はこのターンのみ有効。粘菌を塗られたプレイヤーは死体の通報、ボタンなどを行った際にも爆発する。自分はブラキディオスの爆発に巻き込まれない。,"(动物阵营)\n如果你试图杀死目标、你会被涂上粘液真菌、而不是 这不会导致杀戮、但在你下次试图杀人时、被涂上粘液真菌的玩家将在一次巨大的爆炸中爆炸。 粘液真菌只在这一回合活跃。 你并没有参与这次爆炸"
 Leopard,Leopard,ヒョウ,Leopard
 "LeopardInfo","Guess Nice Roles in Meetings to Kill",...そろそろ狩るか,"想来一把吗 伙计"
-"LeopardInfoLong","(Animals):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /id command to view the id of all players.",[アニマルズ陣営]\nヒョウの本領は議論中に発揮される。「/bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(动物阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/id指令查看所有玩家的编号。"
+"LeopardInfoLong","(Animals):\nThe Evil Guesser can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /cmd bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /cmd id command to view the id of all players.",[アニマルズ陣営]\nヒョウの本領は議論中に発揮される。「/cmd bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(动物阵营):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/cmd bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/cmd id指令查看所有玩家的编号。"
 ASchrodingerCat,(Anim)SCat,(アニマルズ)シュレ猫,(动物)薛定谔的猫
 AOjouSama,Young lady who loves animals,動物好きのお嬢様,喜欢动物的年轻女士
 RedPanda,RedPanda,レッサーパンダ,小熊猫
@@ -608,6 +608,7 @@ GSchrodingerCat,(Gizoku)SCat,(義賊)シュレ猫,(侠盗)薛定谔的猫,(侠�
 "LawTracker","Pursuer","追跡者","起诉人",
 "Totocalcio","Totocalcio","トトカルチョ",
 "Duelist","Duelist","決闘者",
+"God","God","神",
 "PlagueDoctor","Plague Doctor","ペスト医師","","","Чумной Доктор",""
 
 "ArsonistInfo","Burn them to crisps","燃やせ","火焰给我燃烧起来吧！","燒吧，燒吧，燃燒吧","Облейте и подожгите всех игроков","Queime tudo em pedacinhos"
@@ -636,6 +637,7 @@ DSchrodingerCatInfo,You are now on Team Darkhide,ダークハイドの味方に�
 "PursuerInfo","I lost a client","依頼人いなくなっちゃった","我丢失了一个客户",
 "TotocalcioInfo","I leave my victory to you","私の勝利は貴方に任せる",
 "DuelistInfo","I decided on you, it's battle time!","貴方は因縁の相手、いざ勝負！",
+"GodInfo","You Are God!!","あなたは神だ",
 "PlagueDoctorInfo","Spread disease to wipe out the crew","ペストをばらまけ","","","Распространите чуму",""
 
 "ArsonistInfoLong","(Neutrals):\nWhen you use the kill button, you douse your target in oil.\nAfter dousing all living players, you set everything ablaze and win by venting.","(ニュートラル):\nキルボタンを使おうとすると、ターゲットに油を塗れる。\nすべてのクルーに油を塗ったら船を燃やして勝利する。","(独立阵营):\n纵火犯可以通过对玩家点击击杀按钮并在跟随其数秒来完成涂油行为。\n当所有存活玩家都被纵火犯涂油后，纵火犯可以通过跳通风管来点火，并单独获得胜利。","(中立):\n當縱火犯嘗試使用殺人鍵,它將對他身邊最近的一個人澆上油,\n當他對所有玩家澆上油之後,縱火縱火犯點火即勝利。","(Нейтрал):\nПоджигатель может обливать игроков, нажав на кнопку 'Убить' и находясь рядом с игроком в течение нескольких секунд. \nПосле того как он обольёт всех живых игроков Поджигатель сможет запрыгнуть в вентиляцию, чтобы поджечь всех игроков, что приводит к победе Поджигателя.","(Neutros):\nAo apertar o botão de matar, você encharca o seu inimigo em óleo.\nApós ter encharcado todos os jogadores vivos, você coloca tudo em chamas e ganha entrando na ventilação."
@@ -657,6 +659,9 @@ DSchrodingerCatInfo,You are now on Team Darkhide,ダークハイドの味方に�
 "LawTrackerInfoLong","(Neutrals):\nLawyer defends the impostor or NeutralKiller.\nIf the client dies, the Lawyer changes his role to Pursuer(additional win if he survives & prevents a set number of kills).Both Lawyer and Pursuer do not have the task.\n\nThere are two conditions for a lawyer's victory.\nWhen the client wins when he is alive,\n1) If the lawyer is dead, he wins along with his winning team.\n2) If the lawyer survives, the winning team's victory is intercepted (sole victory for the lawyer).","[ニュートラル]\n弁護士は、依頼人となるインポスターorキル可能な第3陣営を擁護する。\n依頼人が死亡すると弁護士は役職が変更されて「追跡者(自身が生存していれば追加勝利 + 設定回数キルを防ぐ)」 になる。弁護士、追跡者共にタスクはもたない。\n\n弁護士の勝利条件は以下の2通り。\n依頼人が生存時に勝利した時、\n1) 弁護士が死亡していたら、その優勝チームと共に勝利。\n2) 弁護士が生存していたら、優勝チームの勝利を横取り(弁護士の単独勝利)。","(中立阵营):\n律师为内鬼/中立杀手负责辩护\n如果客户死了 它就会变成起诉人(如果他活了下来并防止了一定数量的击杀，则会赢得额外的胜利).律师和追击者都没有任务\n\n律师获胜有两个条件\n当客户活着时获胜,\n1) 如果律师死了，他将与获胜团队一起获胜.\n2) 如果律师活到了最后，获胜团队的胜利将被取消（律师抢夺了胜利）",
 "TotocalcioInfoLong","(Neutrals):\nThe kill button can be used to 'BET' on someone.If the BET player on the game wins, he can win an additional unconditional victory.","[ニュートラル]\nキルボタンを使用して、誰かに「賭ける」ことが可能。賭けた対象プレイヤーが勝利すると、無条件で自身も追加で勝利できる。\n「賭ける」先は設定により途中で変更することも可能。ただし生存人数が減るごとに「賭ける」クールタイムが長くなる。",,
 "DuelistInfoLong","(Neutrals):\nThe opponent who votes for the first meeting becomes the Duelist's own Archenemy.After the decision of the Archenemy, the name of the duelist is also displayed from the Archenemy's point of view, and the victory condition for the duelist and Archenemy is 'If you are alive when the victory is decided and your Archenemy dies, you win an additional victory.'","[ニュートラル]\n初手会議に投票した相手を自身の宿敵にする。初手会議の投票時、決闘者の投票先は全視点見えない。初手会議で宿敵を決定しないと自殺する。\n宿敵決定後、宿敵目線でも決闘者が誰か表示され、決闘者・宿敵の勝利条件は「勝利判定時に自身が生存、且つ宿敵(決闘者)が死亡で追加勝利」となる。",,
+"GodInfoLong","(Neutrals):\nYou can see every player's role.\nIf you survive until the end, you steal the victory.\nGod cannot repair any sabotage.","(ニュートラル):\n全員の役職がわかります。\n最後まで生き残っていると、勝利を奪い取ります。\n神はすべてのサボタージュが直せません。",
+"GodTaskCompleteToWin","Require Tasks To Win","勝利にタスク完了が必要",
+"GodViewVoteFor","View Vote Targets","投票先を確認する",
 "PlagueDoctorInfoLong","(Neutrals):\nThe Plague Doctor's goal is to infect every living player.\nThey start by choosing one player to infect, after which anyone who spends a set\namount of time in range of the infected player becomes infected themselves.\nInfection progress is cumulative, and does not reset with distance or after meetings.","(第三陣営):\nペスト医師ははすべてのプレイヤーに感染を広げることが目的。\nキルで最初の感染者を選ぶ。接触感染していきすべてのプレイヤーに感染させたら勝利。会議では感染はリセットされない","","","(Нейтрал):\nЦель Чумного Доктора - заразить всех живых игроков.\nОн выбирает одного игрока для заражения с помощью кнопки 'Убить', после чего игрок который будет в радиусе зараженного игрока в течении X времени, станет зараженным.\nПрогресс заражения не сбрасывается после встреч и т.д.",""
 
 
@@ -769,7 +774,7 @@ AddBaitInfoLong,"(Add-ons):\nWhen you are killed, you force your killer to immed
 RefusingInfoLong,"(Add-ons):\nOnce he is about to be exiled, refuses to be exiled and stays on the ship.",[属性]:\n追放されそうになった時、一度追放を拒んで船に居続ける。,
 "ArchenemyInfoLong","(Add-ons):\nA duelist challenged him to a fight.The name of the duelist is displayed, and the Archenemy's condition for victory is 'If you are alive at the time of the victory decision and the duelist dies, you win an additional victory.'","[属性]:\n決闘者に闘いを申し込まれた。決闘者が誰か表示され、宿敵の勝利条件は「勝利判定時に自身が生存、且つ決闘者が死亡で追加勝利」となる。",
 Chu2ByoInfoLong,"(Add-ons):\nReleasing the ability to dictate gains the ability to dictate. Now, shout. 暗黒の魔力よ我が身に宿りし時","[属性]:\n能力を解放することでディクテーターの能力を得る。さぁ、叫べ。「暗黒の魔力よ我が身に宿りし時」と。","(效果):\n释放成为独裁者的能力。 现在大喊 '暗黒の魔力よ我が身に宿りし時'。",
-"GamblerInfoLong","(Add-ons):\nThe Gambler can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /id command to view the id of all players.",[属性]\nギャンブラーの本領は議論中に発揮される。「/bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(效果):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/id指令查看所有玩家的编号。"
+"GamblerInfoLong","(Add-ons):\nThe Gambler can guess the role of a certain player during the meeting. If it is correct、 the target dies, and if it is wrong、 the Evil Guesser dies.\nThe guessing command is: /cmd bt [player id] [role]\nYou can see the player's id before the player's name、 or use the /cmd id command to view the id of all players.",[属性]\nギャンブラーの本領は議論中に発揮される。「/cmd bt {対象者のID} {役職}」を入力することで相手の役職を推測する。予想が正しければ対象をキルでき、間違えれば自身が死ぬことになる。,"(效果):\n邪恶赌怪可以在会议时猜测某位玩家的职业，正确则击杀目标，错误则会自杀。\n猜测指令为：/cmd bt [玩家编号] [职业名]\n您可以在玩家名字前看到该玩家的编号，或者使用/cmd id指令查看所有玩家的编号。"
 
 "# GM"
 "GM","GM","ゲームマスター","GM(管理员)","GM(遊戲大師)","GM(Призрак)","GM(Fantasma)"
@@ -820,7 +825,7 @@ Chu2ByoInfoLong,"(Add-ons):\nReleasing the ability to dictate gains the ability 
 "DisableUploadDataTask","Disable UploadData Tasks","ダウンロードタスク","禁用上传数据任务","禁用上傳任務","Отключить Задание ''Загрузка Данных''","Desativar Tarefas de Baixar Dados"
 "DisableStartReactorTask","Disable StartReactor Tasks","原子炉起動タスク","禁用启动反应堆任务","禁用啟動反應堆任務","Отключить Задание ''Запустить Реактор''","Desativar Tarefas de Acionar Reator"
 "DisableResetBreakerTask","Disable ResetBreaker Tasks","ブレーカーリセットタスク","禁用重置反应堆任务","禁用重置斷路器任務","Отключить Задание ''Рычаги(Airship)''","Desativar Reiniciar Disjuntores"
-"DisableFixWeatherNodeTask","Disable FixWeatherNode Tasks","気象ノードタスク","","","","",""
+"DisableFixWeatherNodeTask","Disable FixWeatherNode Tasks","気象ノードタスク","","","",""
 "SuffixMode","Suffix","名前の二行目","附加标签","名字標籤","Суффикс","Sufixo"
 "SuffixMode.None","None","なし","无","無","Ничего","Nenhum"
 "SuffixMode.Version","Version","バージョン","版本","版本","Версия","Versão"
@@ -909,6 +914,8 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "KickPlayerFriendCodeNotExist","Kick Players Whose Friend Code Does Not Exist","フレンドコードが存在しないプレイヤーをキックする","踢出好友编号无效的玩家","","Кикнуть игроков у которых нет Кода Друга",""
 "ApplyBanList","Apply BanList","BANリストを適用する","启用封禁名单","","Применить файл с забаненными игроками (BanList)",""
 "FixSpawnPacketSize","(Experimental) Only if disconnection occurs with above 8 people.","(試験的機能) 8人以上で切断が発生する場合のみオンにするときっと嬉しい"
+"FirstTurnMeeting","First Turn Call Meeting","開始後、緊急会議を発動させる","","","",""
+"FirstTurnMeetingCantability","Force Meeting Can't Ability","強制会議中に能力が使えない","","","",""
 "ShowReportReason","Show button or report","ボタンかレポートか表示させる","显示按钮或报告"
 "ShowRevengeTarget","Show Revenge player at Meeting","道連れされた人を会議で表示する","在会议上显示复仇玩家"
 "ShowRoleInfoAtFirstMeeting","Show Role description at the first meeting","初めの会議で役職説明を表示する","在第一次会议上显示角色介绍"
@@ -928,7 +935,7 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "## モード説明"
 "HideAndSeekInfo","Hide and Seek:\nNo emergency meetings. Crewmates (Blue) can only win by finishing tasks\nand impostors (Red) can only win by killing all crewmates.","かくれんぼ:\n会議を開くことはできず、クルーはタスク完了、インポスターは全クルー殺害でのみ勝利することができる。\nインポスターは赤、クルーは青に体の色が変更される。","躲猫猫:\n不能开会；船员只能通过完成任务获得胜利；\n内鬼需要杀死所有船员来获得胜利；\n内鬼的皮肤颜色将变为红色，船员变为蓝色，以示区分。","躲貓貓:\n不能拍桌或舉報，船員只能做任務\n偽裝者的勝利條件為殺光所有船員\n狼人的顏色會轉變為紅色，船員則會變為藍色。","Прятки:\nНикто не может созвать срочное собрание, Члены Экипажа могут победить, только выполняя задания. \nПредатели меняют цвет тела на красный, а экипажи на синий.","Esconde-Esconde:\nNão há reuniões de emergência. Tripulantes (Azul) podem ganhar apenas ao completar todas as tarefas,\ne Impostores (Vermelho) ganham apenas quando matarem todos os tripulantes."
 "StandardHASInfo","Hide and Seek with Roles:\nNo emergency meetings. Crewmates can only win by finishing tasks and impostors can only win by killing all crewmates.","役職入りでかくれんぼ:\n会議を開くことはできず、クルーはタスク完了、インポスターは全クルー殺害でのみ勝利することができる。","躲猫猫（模组）:\n没有会议阶段；船员只能完成任务；\n内鬼需要杀死所有船员来获得胜利。","躲貓貓(附加普通模式職業):\n不能拍桌或舉報，船員只能做任務\n偽裝者的勝利條件為殺光所有船員\n偽裝者的顏色會轉變為紅色，船員則會變為藍色。","Прятки с Ролями:\nНикто не может созвать срочное собрание, Члены Экипажа могут победить, только выполнив задания, А Предатели могут победить, только убив всех Членов Экипажа.","Esconde-Esconde com Classes:\nNão há reuniões de emergência. Tripulantes podem ganhar apenas ao completar todas as tarefas, e Impostores ganham apenas quando matarem todos os tripulantes."
-"NoGameEndInfo","NoGameEnd:\nA mode for debugging with no victory. The only way to end the game is to have the host SHIFT+L+ENTER.","ゲームを終了しない:\n勝利判定が存在しないデバッグ用のモード。ホストのSHIFT+L+ENTER以外でのゲーム終了ができない。","测试模式:\n本模式用于进行测试。本模式没有游戏结束判定，房主按下shift+L+enter可以结束游戏。","遊戲不會結束模式:\n該模式僅限用來測試,這裡沒有勝利條件\n該模式無法通過正常勝利條件結束,僅能讓房主使用SHIFT+L+ENTER或指令/dis來結束遊戲。","Игра Не Заканчивается:\nРежим отладки, в котором нет основы для выигрыша.\nИгра не может быть завершена, если Хосту не использует команду в лобби SHIFT+L+ENTER.","Jogo Sem Fim:\nUm modo para testes, sem vitória. A única forma de finalizar o jogo é o anfitrião usar SHIFT+L+ENTER."
+"NoGameEndInfo","NoGameEnd:\nA mode for debugging with no victory. The only way to end the game is to have the host SHIFT+L+ENTER.","ゲームを終了しない:\n勝利判定が存在しないデバッグ用のモード。ホストのSHIFT+L+ENTER以外でのゲーム終了ができない。","测试模式:\n本模式用于进行测试。本模式没有游戏结束判定，房主按下shift+L+enter可以结束游戏。","遊戲不會結束模式:\n該模式僅限用來測試,這裡沒有勝利條件\n該模式無法通過正常勝利條件結束,僅能讓房主使用SHIFT+L+ENTER或指令/cmd dis來結束遊戲。","Игра Не Заканчивается:\nРежим отладки, в котором нет основы для выигрыша.\nИгра не может быть завершена, если Хосту не использует команду в лобби SHIFT+L+ENTER.","Jogo Sem Fim:\nUm modo para testes, sem vitória. A única forma de finalizar o jogo é o anfitrião usar SHIFT+L+ENTER."
 "SyncButtonModeInfo","SyncButtonMode:\nA mode where all players share the total buttons available.","ボタン回数同期モード:\nプレイヤー全員のボタン回数が同期されているモード。(設定有)","所有船员共享会议次数:\n游戏中存在全员共有的最大紧急会议次数。(可以进行设置)","全場拍桌數同步模式:\n該模式會讓全場玩家的拍桌數同步。(可以設定拍桌數)","Синхронизация Кнопки:\nЭтот режим ограничивает максимальное количество срочных собраний, которые можно созвать в целом. (в настройках)","Modo de Botão Sincronizado:\nUm modo em que os jogadores dividem o número total de botões disponíveis. (configurável)"
 "SabotageTimeControlInfo","Sabotage Duration Control:\nCan alter the duration of certain sabotages.","サボタージュの時間制御:\n一部サボタージュの制限時間を変更することができる。(設定有)","破坏调整:\n可以调整一部分破坏的限制时间。(可以进行设置)","控制緊急任務時間:\n該模式可以讓某些地圖的破壞時間重新設定。 (可以設定)","Изменить Время Саботажа:\nВозможность изменить время саботажа реактора. (в настройках)","Controle de Duração da Sabotagem:\nPode alterar a duração de algumas sabotagens. (configurável)"
 "RandomMapsModeInfo","RandomMapsMode:\nA mode in which the map changes randomly.","ランダムマップモード:\nランダムにマップが変わるモード。(設定有)","随机地图:\n随机选择地图游玩的模式。(可以进行设置)","隨機地圖模式:\n該模式會隨機挑選地圖。 (可以設定)","Случайная Карта:\nРежим в котором карты случайным образом меняются в каждой игре. (в настройках)","Modo de Mapas Aleatórios:\nUm modo em que o mapa muda aleatoriamente a cada partida. (configurável)"
@@ -1053,7 +1060,10 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "MadmateCanSeeKillFlash","Madmate Can See ""Kill Flash""","キルフラッシュが見える","叛徒系职业可以看到击杀闪光","叛徒職業的玩家可以看到殺人閃光","Madmates Могут Видеть Вспышку Убийства","Loucos Podem Ver ""Clarão de Abate"""
 "MadmateCanSeeOtherVotes","Madmate Can See Votes","他人の投票先が分かる","叛徒系职业可以看到其他人所投的票","叛徒可以看到所有人的投票","Madmates Могут Видеть Цвета Голосов","Loucos Podem Ver Votos"
 "MadmateCanSeeDeathReason","Madmates Can See Cause Of Death","死因が分かる","叛徒系职业可以看见死因","叛徒職業的玩家可以看到死因","Madmate Может Видеть Причину Смерти","Loucos Podem Ver Causa da Morte"
-"MadmateExileCrewmate","Madmates Revenge A Crewmate When Exiled","追放時クルーを道連れにする","叛徒系职业在被放逐时复仇, 带走一名船员垫背","叛徒被丟出時會隨機拖一個船員一起下水","Madmate сохраняют команду при изгнании",""
+"MadmateExileCrewmate","Madmates Revenge A Crewmate When Exiled","マッドメイト系役職追放時クルーを道連れにする","叛徒系职业在被放逐时复仇, 带走一名船员垫背","叛徒被丟出時會隨機拖一個船員一起下水","Madmate сохраняют команду при изгнании",""
+"RevengeToCrewmate","Crewmates Get Revenged","クルーを道連れにする","","","",""
+"RevengeToNeutral","Neutrals Get Revenged","ニュートラルを道連れにする","","","",""
+"RevengeToAnimals","Animals Get Revenged","アニマルズを道連れにする","","","",""
 "MadmateVentCooldown","Mad Roles Vent Cooldown","マッドメイト系役職のベントクールダウン","叛徒系职业跳管道冷却时间","叛徒職業的玩家跳管道冷卻","Откат вентиляции Безумцев","Tempo de Recarga de Dutos dos Loucos"
 "MadmateVentMaxTime","Mad Roles Max Vent Duration","マッドメイト系役職のベント内での最大時間","叛徒系职业在管道中停留的最大时间","叛徒職業的玩家在管道中可以停留的最大時間","Время использования вентиляции Безумцев","Tempo Máximo de Loucos nos Dutos"
 
@@ -1224,7 +1234,7 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "AirshipReactorTimeLimit","Airship Reactor Duration","エアシップのリアクター制限時間","飞艇坠毁路线修理时限","Airship間隙室破壞最大時間","Airship время саботажа Реактора","Duração do Reator em Airship"
 
 "## ゲーム設定UI"
-"TOHSettingsButtonLabel","TOH Settings","TOH4E設定",""
+"TOHSettingsButtonLabel","TOH Settings","ＴＯＨ４Ｅ設定",""
 "TOHSettingsDescription","Edit mod settings for your game lobby.","Modの設定を編集出来たり\r\n出来なかったり\r\n(´；ω；｀)。",""
 
 "## クライアント設定"
@@ -1250,10 +1260,18 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "Command.h_addons","<Add-Ons Name> - Display Add-on Description","<属性名> - 属性の説明を表示","<附加效果名> - 显示附加效果说明","<屬性名> - 顯示關於該屬性的介紹","<ИмяАтрибута> — Показать описание Атрибута","<NomedoAtributo> — Mostrar Descrição do Atributo"
 "Command.h_modes","<ModeName> - Display Mode Description","<モード名> - モードの説明を表示","<模式名> - 显示模式介绍","<模式名> - 顯示關於該模式的介紹","<ИмяРежима> - Показать описание Режима","<NomedoModo> - Mostrar Nome do Modo"
 "Command.dump","Output Log to Desktop","デスクトップにログを出力","将游戏运行日志输出到桌面","在桌面上建立遊戲輸出日誌","Вывод журнала на Рабочий Стол","Enviar Registro (log) Para Área de Trabalho"
+"Command.now_roles","Display Active Roles","現在有効な役職を表示","","","",""
+"Command.killlog","Display Previous Game Kill Log","前回のキル履歴を表示","","","",""
+"Command.myrole","Display Your Role Description","自分の役職説明を表示","","","",""
+"Command.template","Display a Registered Template by Tag","タグを指定して登録済みテンプレートを表示","","","",""
+"Command.voice","Show or Change Text-to-Speech Voice","読み上げ音声を確認・変更","","","",""
+"Command.bethelp","Display Betting Command List (When Enabled)","勝利陣営予想機能のコマンド一覧を表示（機能有効時）","","","",""
 "Command.h_args","Available Args (Clipped)","使用可能な引数 (略称)","可用参数（简写）","可用的參數(簡稱)","Доступные Аргументы (Ограниченные)","Argumentos Disponíveis (Atalho)"
+"Command.FullCommand","Full command:","正式コマンド:","","","",""
 
-"CantUse.lastresult","Unable to use /lastresult during a game.","試合中に/lastresultを使用することはできません。","不可以在游戏中使用/lastresult命令","不可以在遊戲中使用/lastresult指令","Нельзя использовать /lastresult во время игры","Impossível usar /lastresult durante um jogo."
-"CantUse.killlog","Unable to use /killlog during a game.","試合中に/killlogを使用することはできません。","不可以在游戏中使用/killlog命令","不可以在遊戲中使用/killlog指令","Нельзя использовать /killlog во время игры","Impossível usar /killlog durante um jogo."
+"CantUse.lastresult","Unable to use /cmd lastresult during a game.","試合中に/cmd lastresultを使用することはできません。","不可以在游戏中使用/cmd lastresult命令","不可以在遊戲中使用/cmd lastresult指令","Нельзя использовать /cmd lastresult во время игры","Impossível usar /cmd lastresult durante um jogo."
+"CantUse.killlog","Unable to use /cmd killlog during a game.","試合中に/cmd killlogを使用することはできません。","不可以在游戏中使用/cmd killlog命令","不可以在遊戲中使用/cmd killlog指令","Нельзя использовать /cmd killlog во время игры","Impossível usar /cmd killlog durante um jogo."
+"GuessHelp","Guess usage:\n/cmd bt {ID} {role name}\nID list:\n/cmd id","Guess使用方法\n/cmd bt {ID} {役職名}\nID確認\n/cmd id"
 
 "## メッセージ"
 "Message.SetToSeconds","Set to {0} seconds.","{0}秒に設定されました","信息发送冷却时间为{0}秒","訊息發送冷卻已設定為{0}秒","Установлен на {0} секунды","Definido para {0} segundos."
@@ -1268,11 +1286,12 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "Message.BanedByBanList","{0} has been banned because it has been banned in the past.","{0}は過去にBAN済みのためBANされました。","{0} 已被封禁，因其之前就被封禁过","因為{0}在被記錄在黑名單中，所以禁止了{0}再次進入此房間。","{0} был заблокирован, потому что он был заблокирован в прошлый раз",""
 "Message.KickedByNoFriendCode","{0} was kicked because the friend code does not exist.","{0}はフレンドコードが存在しないためキックされました。","{0}被踢出，因其好友编号无效。","{0}因為沒有好友代碼，所以踢出了他。","{0} был кикнут, так как у него нет кода друга",""
 "Message.AddedPlayerToBanList","Added {0} to the ban list.","{0}をBANリストに追記しました。","{0}已被添加到封禁名单","已將 {0} 加入到黑名單中，此玩家將無法再進入你的房間。(需安裝TOH模組)","{0} был добавлен в список забаненых игроков",""
-"Message.AnnounceUsingTOH","This room uses TownOfHost_ForE v{0}.\n/now can be used to check the current settings.\nPlease check GitHub for detailed roles descriptions.","この部屋はTownOfHost_ForE v{0}を使用しています。本家TOH、現行版TOH_ForEを含む他MOD導入中の方との共存は出来ません。\n/nで現在の設定、/h nで現在の設定の説明が確認できます。","本房间使用TownOfHost_ForE mod v{0}。\n可以使用/now来查询当前设置。\n请前往本mod的Github页面来获取详细的职业信息。","本房間使用TownOfHost_ForE v{0}。\n可以使用/n來查詢目前設定。\n若要獲得進一步的職業介紹(並沒有繁體中文翻譯版本)請前往本模組的Github頁面來獲得。","В этой комнате используется TownOfHost_ForE v{0}. Используйте  \n/now чтобы увидеть текущие настройки. \nПожалуйста посетите GitHub для получения подробного описания мода и ролей.","Esta sala está usando TownOfHost_ForE versão {0} .\nO comando /now pode ser usado para ver as configurações atuais.\nPor favor, verifique o GitHub para descrições detalhadas das classes."
+"Message.AnnounceUsingTOH","This room uses TownOfHost_ForE v{0}.\n/cmd now can be used to check the current settings.\nPlease check GitHub for detailed roles descriptions.","この部屋はTownOfHost_ForE v{0}を使用しています。本家TOH、現行版TOH_ForEを含む他MOD導入中の方との共存は出来ません。\n/cmd nで現在の設定、/cmd h nで現在の設定の説明が確認できます。","本房间使用TownOfHost_ForE mod v{0}。\n可以使用/cmd now来查询当前设置。\n请前往本mod的Github页面来获取详细的职业信息。","本房間使用TownOfHost_ForE v{0}。\n可以使用/cmd n來查詢目前設定。\n若要獲得進一步的職業介紹(並沒有繁體中文翻譯版本)請前往本模組的Github頁面來獲得。","В этой комнате используется TownOfHost_ForE v{0}. Используйте  \n/cmd now чтобы увидеть текущие настройки. \nПожалуйста посетите GitHub для получения подробного описания мода и ролей.","Esta sala está usando TownOfHost_ForE versão {0} .\nO comando /cmd now pode ser usado para ver as configurações atuais.\nPor favor, verifique o GitHub para descrições detalhadas das classes."
+"Message.JoinCommandListGuide","You can view the command list with /cmd h.","コマンド一覧は /cmd h で確認できます。"
 "Message.isReport","The meeting was started by the discovery of a dead body.\nReported dead body：{0}","死体発見により会議が開かれました。\n通報された死体：{0}","会议以发现一具尸体开始。\n报告的尸体：{0}"
 "Message.isButton","The meeting was started by an emergency button.","緊急ボタンにより会議が開かれました。","会议以使用紧急按钮开始."
 "Message.RevengeText","{0} is exiled, and another is died by revenge. \nmurdered：{1}","{0}が追放され、道連れが発生しました。\n{1}が死亡しています。","{0} 被投出，另一人因复仇而死. \n凶杀：{1}"
-"Message.HelpRoleNone","/help roles (/h r) command is only available in Japanese.","/help roles [役職名] (/h r [役職名])\nを入力することでその役職の説明が表示されます。",
+"Message.HelpRoleNone","/cmd help roles (/cmd h r) command is only available in Japanese.","/cmd help roles [役職名] (/cmd h r [役職名])\nを入力することでその役職の説明が表示されます。",
 
 "IsNimrodMeetingTitle","【The Nimrod's choice】","【ニムロッドの処刑選択】"
 "IsNimrodMeetingText","The Nimrod should choose who to execute.\nIt's time for others to wait quietly...","ニムロッドは処刑する人を選択してください。\n他の人は静かに待つ時間...",
@@ -1341,6 +1360,8 @@ PanAlive13,\nBread was served by the bakery.\nㅤ,\nパン屋は{0}に向けて�
 "ERR-001-000-3","Main dictionary has duplicated keys.","MainのDictonaryでKeyの重複が発生しています。","在主目录出现重复密钥","在主目錄出現重複密鑰","Дублирование ключей происходит в основном словаре.","Dicionário principal tem chaves duplicadas."
 "#### 002 Support"
 "ERR-002-000-1","Unsupported AmongUs version. Please update.","サポートされていないAmongUsバージョンです。ゲームをアップデートしてください。","","","",""
+"ERR-010-000-2","An error occurred while processing disconnection. Please abort the game.","プレイヤーの切断処理中にエラーが発生しました。廃村してください。","","","",""
+"ERR-010-001-2","An error occurred while processing disconnection. Please recreate the lobby.","プレイヤーの切断処理中にエラーが発生しました。ロビーを作り直してください。","","","",""
 
 "## その他"
 "DefaultSystemMessageTitle","【===== System Message =====】","【===== システムメッセージ ======】","【===== 系统信息 ======】","【===== 系統訊息 】","【=== Системное сообщение ===】","【===== Mensagem do Sistema ======】"
@@ -1497,3 +1518,41 @@ PanAlive13,\nBread was served by the bakery.\nㅤ,\nパン屋は{0}に向けて�
 "VoiceReaderGray","Gray","グレー",,,,
 "VoiceReaderTan","Tan","タン",,,,
 "VoiceReaderCoral","Coral","コーラル",,,,
+"UltraStar","UltraStar","ウルトラスター",
+"UltraStarInfo","I'm UltraStar!!!!!!!!","ﾃｯﾃｯﾃｰﾃﾃｯﾃｰﾃｯﾃｯﾃｰ",
+"UltraStarInfoLong","(Crewmates):\nAll players can identify the UltraStar.\nThe UltraStar moves faster and changes body color at one-second intervals.\nWhether the UltraStar can kill is configurable.\nWhen killing is enabled, after the cooldown the first player encountered at very close range is forcibly killed. Guards are also penetrated when the guard setting is disabled.\n\nFind an enemy, ram into them, and kill!!","[クルー陣営]\n全員視点からウルトラスターが誰か分かる。\nまた、ウルトラスターは速度が速く、1秒間隔でスキンの色が変化する。\nキルができるか設定で変更が可能。\nキルが可能な場合、一定時間が経過して最初にすれ違った人を強制的にキルする。(ガードも貫通)\n\n敵を見つけたら体当たりして殺害だぁ!!",
+"AddSpeed","AddSpeed","加速値(バニラの足の速さ + 設定値)",
+"UltraStarCankill","Cankill","キル能力を持つ",
+"UltraStarcheckkill","Target Guard","役職などのガードを適応する",
+"UltraStarVentCanseekillcool","VentCool is Killcool","ベントクールでキルクールを表記する",
+"UltraStarCanseeallplayer","Allplayer Cansee UltraStar","会議時にウルトラスターが分かる",
+"Scales","Scales","天秤","","","",""
+"ScalesInfo","Weigh two candidates in a special meeting.","2人を選び、専用会議で天秤にかける。","","","",""
+"ScalesInfoLong","(Crewmates):\nVote for yourself during a meeting to enter Scales selection mode. Select two different living players to end the current meeting and start a special Scales Meeting.\nDuring the Scales Meeting, everyone can vote only for those two candidates. Players who do not vote are assigned randomly to one of them. If the vote is tied, both candidates are exiled.\nThe number of times the ability can be used is configurable.","[クルー陣営]\n会議中に自投票すると天秤の選択モードに入り、異なる生存者2人を選ぶと現在の会議を終了して専用の天秤会議を開始する。\n天秤会議では選ばれた2人にのみ投票でき、無投票者は自動的にどちらかへ投票する。同数票の場合は2人とも追放される。\n能力の使用可能回数は設定で変更できる。","","","",""
+"ScalesMeetingTime","Scales meeting voting time","天秤の投票時間","","","",""
+"ScalesCanUseAllAlive","Cannot activate while everyone is alive","全員生存している間は能力を発動できない","","","",""
+"ScalesCanUseMeetingAbility","Restrict meeting abilities to the two candidates","天秤会議中は対象者以外に会議能力を使用できない","","","",""
+"ScalesAbilityUseCount","Scales ability use count","天秤能力の使用可能回数","","","",""
+"ScalesSelectionStarted","Scales selection mode started. Vote for two different living players. Vote for yourself or skip to cancel.","天秤の選択モードを開始しました。異なる生存者2人に順番に投票してください。自投票またはスキップで解除します。","","","",""
+"ScalesSelectionCanceled","Scales selection mode was canceled.","天秤の選択モードを解除しました。","","","",""
+"ScalesFirstTarget","First candidate: {0}","1人目の対象：{0}","","","",""
+"ScalesDuplicateTarget","Select a different player for the second candidate.","2人目には別のプレイヤーを選んでください。","","","",""
+"ScalesTargetsSelected","{0} and {1} were selected. The current meeting will end and a Scales Meeting will begin.","{0}と{1}を選択しました。現在の会議を終了し、天秤会議を開始します。","","","",""
+"ScalesInvalidTarget","That player cannot be selected.","そのプレイヤーは選択できません。","","","",""
+"ScalesAllAliveBlocked","The ability cannot be activated while everyone is alive.","全員生存しているため、能力を発動できません。","","","",""
+"ScalesSelfVoteHint","Vote for yourself to use the Scales ability.","自投票で天秤の能力を使用できます。","","","",""
+"ScalesMeetingTitle","Scales Meeting","天秤会議","","","",""
+"ScalesMeetingInfo","{0} and {1} are on the scales.\nVote for one of them.","{0}と{1}が天秤にかけられた。\nどちらかに投票してください。","","","",""
+"ScalesInvalidVote","During a Scales Meeting, you can vote only for the two candidates.","天秤会議では、天秤にかけられた2人にのみ投票できます。","","","",""
+"ScalesMeetingAbilityBlocked","That meeting ability cannot target anyone outside the two candidates.","天秤会議中は、対象の2人以外に会議能力を使用できません。","","","",""
+"ScalesBothExiled","The vote was tied. Both candidates will be exiled.","同数票のため、2人とも追放されます。","","","",""
+"ScalesStartFailed","The Scales Meeting could not start. The ability state was safely reset.","天秤会議を開始できなかったため、状態を安全に解除しました。","","","",""
+"ScalesTargetUnavailable","The Scales Meeting was canceled because one or both candidates became unavailable.","対象者の一方または両方を確認できないため、天秤会議を中止しました。","","","",""
+"ScalesUnknownPlayer","Unknown player","不明なプレイヤー","","","",""
+"HamburgerShop","Hamburger Shop","ハンバーガー屋","","","",""
+"HamburgerShopInfo","All assigned tasks become Make Burger tasks.","配布される全タスクがハンバーガータスクになる。","","","",""
+"HamburgerShopInfoLong","(Crewmates):\nAll assigned tasks become Make Burger tasks and can be completed in The Airship kitchen.\nThis host-only implementation is assigned only on The Airship. When custom task counts are disabled, the original assigned task count is preserved.","[クルー陣営]\n配布される全タスクがハンバーガータスクになり、Airshipのキッチンで完了できる。\nホストのみMODで成立する実タスク配布方式のため、Airshipでのみ配役される。個別タスク数を設定しない場合は、元の配布タスク数を維持する。","","","",""
+"HamburgerShopUseCustomTaskCount","Set a custom number of tasks","個別タスク数を設定する","","","",""
+"HamburgerShopCommonTasks","Common tasks","通常タスク","","","",""
+"HamburgerShopShortTasks","Short tasks","ショートタスク","","","",""
+"HamburgerShopLongTasks","Long tasks","ロングタスク","","","",""

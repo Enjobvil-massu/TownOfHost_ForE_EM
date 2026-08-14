@@ -10,12 +10,26 @@ namespace TownOfHostForE.Modules
         {
             get
             {
-                if (_logicOptions == null || !GameManager.Instance?.LogicComponents?.Contains(_logicOptions) == true)
+                var logicComponents = GameManager.Instance?.LogicComponents;
+                if (logicComponents == null)
                 {
-                    foreach (var glc in GameManager.Instance.LogicComponents)
-                        if (glc.TryCast<LogicOptions>(out var lo))
-                            _logicOptions = lo;
+                    return false;
                 }
+
+                if (_logicOptions == null || !logicComponents.Contains(_logicOptions))
+                {
+                    _logicOptions = null;
+
+                    foreach (var glc in logicComponents)
+                    {
+                        if (glc.TryCast<LogicOptions>(out var lo))
+                        {
+                            _logicOptions = lo;
+                            break;
+                        }
+                    }
+                }
+
                 return _logicOptions != null && _logicOptions.IsDirty;
             }
             protected set

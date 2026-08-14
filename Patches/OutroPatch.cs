@@ -220,6 +220,11 @@ namespace TownOfHostForE
 
             foreach (var role in CustomWinnerHolder.AdditionalWinnerRoles)
             {
+                // OUTRO_PRIMARY_ADDITIONAL_DUPLICATE_DISPLAY_GUARD_PERMANENT:
+                // WinnerTeamとして既に中央へ表示している同一役職は追加勝利文字列へ重ねて表示しない。
+                // AdditionalWinnerRoles自体は変更せず、勝利判定・同期・他役職参照の既存仕様を保持する。
+                if (role == winnerRole) continue;
+
                 AdditionalWinnerText.Append('＆').Append(Utils.ColorString(Utils.GetRoleColor(role), Utils.GetRoleName(role)));
             }
             if (CustomWinnerHolder.WinnerTeam is not CustomWinner.Draw and not CustomWinner.None)

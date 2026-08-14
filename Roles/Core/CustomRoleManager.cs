@@ -193,6 +193,8 @@ public static class CustomRoleManager
 
     public static void OnFixedUpdate(PlayerControl player)
     {
+        if (Options.IsFirstTurnMeetingActive) return;
+
         if (GameStates.IsInTask)
         {
             if(!player.GetCustomRole().IsNotAssignRoles())
@@ -215,6 +217,8 @@ public static class CustomRoleManager
 
     public static bool OnSabotage(PlayerControl player, SystemTypes systemType)
     {
+        if (Options.IsFirstTurnMeetingActive) return false;
+
         bool cancel = false;
         foreach (var roleClass in AllActiveRoles.Values)
         {
@@ -287,7 +291,13 @@ public static class CustomRoleManager
             case CustomRoles.InfoPoor: InfoPoor.Add(playerId); break;
             case CustomRoles.NonReport: NonReport.Add(playerId); break;
             case CustomRoles.Chu2Byo: Chu2Byo.Add(playerId); break;
-            case CustomRoles.Gambler: Gambler.Add(playerId); break;
+            case CustomRoles.Gambler:
+                // GOD_GAMBLER_REGISTRATION_GUARD_PERMANENT: 神にはギャンブラーを登録しない
+                if (Utils.GetPlayerById(playerId)?.Is(CustomRoles.God) != true)
+                {
+                    Gambler.Add(playerId);
+                }
+                break;
         }
     }
     /// <summary>
@@ -613,6 +623,14 @@ public enum CustomRoles
     BAKURETSUKI,
     //GM
     GM,
+    // GOD_ROLE_REGISTRATION_PERMANENT: 既存Role IDを維持するためメイン役職末尾へ追加
+    God,
+    // ULTRASTAR_PORT_PERMANENT: 既存Role IDを維持して末尾へ追加
+    UltraStar,
+    // SCALES_PORT_PERMANENT: ウルトラスター直下へ新規クルーメイト役職「天秤」を追加
+    Scales,
+    // HAMBURGER_SHOP_PORT_PERMANENT: 天秤直下へSHRハンバーガー屋を追加
+    HamburgerShop,
 
     _Max,
 

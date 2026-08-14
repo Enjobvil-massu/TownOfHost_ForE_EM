@@ -141,6 +141,10 @@ namespace TownOfHostForE
                 (155, 0),  // メインホール
             };
         }
+        // AIRSHIP_RANDOM_SPAWN_VANILLA_TIMER_PERMANENT:
+        // RandomSpawn ON時もMOD導入端末だけの早期確定は行わず、
+        // Among Us公式SpawnInMinigame.RunTimer(10秒)と手動選択の時間規則をMOD/バニラ共通で使用する。
+        // 以下のSpawnAt / SnapTo / AirshipSpawnによるランダム位置決定は従来どおり維持する。
         [HarmonyPatch(typeof(SpawnInMinigame), nameof(SpawnInMinigame.SpawnAt))]
         public static class SpawnInMinigameSpawnAtPatch
         {

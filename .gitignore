@@ -3,3 +3,5 @@ obj/
 bin/
 FodyWeavers.xsd
 /.vs/
+
+local.props

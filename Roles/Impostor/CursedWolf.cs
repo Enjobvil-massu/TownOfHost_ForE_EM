@@ -33,6 +33,9 @@ public sealed class CursedWolf : RoleBase, IImpostor
     }
     private static int GuardSpellTimes;
     int SpellCount;
+    // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+    // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+    internal int RoleBugTraceSpellCount => SpellCount;
 
     public static void SetupOptionItem()
     {

@@ -54,7 +54,8 @@ namespace TownOfHostForE
             {
                 foreach (var pc in Main.AllPlayerControls)
                 {
-                    if (!pc.Is(Roles.Core.CustomRoles.Rainbow)) RpcSetSkin(pc);
+                    // 通信サボ解除時はペットを含む外見を強制再同期
+                    if (!pc.Is(Roles.Core.CustomRoles.Rainbow)) RpcSetSkin(pc, ForceRevert: !IsCamouflage);
 
                     // The code is intended to remove pets at dead players to combat a vanilla bug
                     if (!IsCamouflage && !pc.IsAlive())
@@ -107,7 +108,8 @@ namespace TownOfHostForE
                 return;
             }
 
-            if (newOutfit.Compare(target.Data.DefaultOutfit)) return;
+            // ForceRevert時はSetPetまで実行して通信サボで消えたペットを復元
+            if (!ForceRevert && newOutfit.Compare(target.Data.DefaultOutfit)) return;
 
             Logger.Info($"newOutfit={newOutfit.GetString()}", "RpcSetSkin");
 

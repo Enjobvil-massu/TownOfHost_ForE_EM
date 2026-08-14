@@ -52,6 +52,16 @@ public sealed class Tuna : RoleBase, IAdditionalWinner
 
     public static bool TunaTypeAnimals = false;
 
+    // FACTION_COUNT_SEMANTICS_PERMANENT: 設定ON=Animals / OFF=Neutralを役職抽選前にRoleInfoへ反映
+    public static void ApplyFactionSetting()
+    {
+        TunaTypeAnimals = OptionAddAnimals.GetBool();
+        RoleInfo.CustomRoleType = TunaTypeAnimals ? CustomRoleTypes.Animals : CustomRoleTypes.Neutral;
+        RoleInfo.CountType = TunaTypeAnimals ? CountTypes.Animals : CountTypes.Crew;
+        RoleInfo.RoleColorCode = TunaTypeAnimals ? "#FF8C00" : "#00bfff";
+        _ = ColorUtility.TryParseHtmlString(RoleInfo.RoleColorCode, out RoleInfo.RoleColor);
+    }
+
     private float waitTime = 0f;
     private bool additionalWin = false;
 

@@ -8,6 +8,7 @@ using UnityEngine;
 using TownOfHostForE.Roles.Core;
 using static TownOfHostForE.Translator;
 using TownOfHostForE.Patches;
+using TownOfHostForE.Modules;
 
 namespace TownOfHostForE
 {
@@ -102,6 +103,22 @@ namespace TownOfHostForE
             //ペット付与
             PetSettings.SetPetRoleInPet();
 
+            // ペット付与後の通常衣装を迷彩復元用に再保存
+            foreach (var pc in Main.AllPlayerControls)
+            {
+                var outfit = pc.Data.DefaultOutfit;
+                TownOfHostForE.Camouflage.PlayerSkins[pc.PlayerId] =
+                    new NetworkedPlayerInfo.PlayerOutfit
+                    {
+                        PlayerName = outfit.PlayerName,
+                        ColorId = outfit.ColorId,
+                        HatId = outfit.HatId,
+                        SkinId = outfit.SkinId,
+                        VisorId = outfit.VisorId,
+                        PetId = outfit.PetId
+                    };
+            }
+
             Utils.NotifyRoles();
 
             GameStates.InGame = true;
@@ -154,7 +171,15 @@ namespace TownOfHostForE
                     case CustomRoleTypes.Madmate:
                         //if (!Options.CurrentGameMode.IsOneNightMode())
                             StartFadeIntro(__instance, Palette.CrewmateBlue, Palette.ImpostorRed);
-                        PlayerControl.LocalPlayer.Data.Role.IntroSound = RoleManager.Instance.AllRoles.Where((role) => role.Role == RoleTypes.Impostor).FirstOrDefault().IntroSound;
+                        var impostorBehaviour = default(RoleBehaviour);
+                        foreach (var vanillaRole in RoleManager.Instance.AllRoles)
+                        {
+                            if (vanillaRole.Role != RoleTypes.Impostor) continue;
+                            impostorBehaviour = vanillaRole;
+                            break;
+                        }
+                        if (impostorBehaviour != null)
+                            PlayerControl.LocalPlayer.Data.Role.IntroSound = impostorBehaviour.IntroSound;
                         break;
                 }
                 switch (role)
@@ -242,7 +267,7 @@ namespace TownOfHostForE
 
             if (Input.GetKey(KeyCode.RightShift))
             {
-                __instance.TeamTitle.text = Main.ModName;
+                __instance.TeamTitle.text = Main.ModNameRichText;
                 __instance.ImpostorText.gameObject.SetActive(true);
                 __instance.ImpostorText.text = "https://github.com/tukasa0001/TownOfHost" +
                     "\r\nOut Now on Github";
@@ -312,6 +337,11 @@ namespace TownOfHostForE
         public static void Postfix(IntroCutscene __instance)
         {
             if (!GameStates.IsInGame) return;
+            Options.FirstTurnMeetingInProgress =
+                AmongUsClient.Instance.AmHost &&
+                Options.FirstTurnMeeting.GetBool() &&
+                Options.CurrentGameMode == CustomGameMode.Standard &&
+                MeetingStates.FirstMeeting;
             Main.isFirstTurn = true;
 
             var mapId = Main.NormalOptions.MapId;
@@ -332,15 +362,70 @@ namespace TownOfHostForE
                     {
                         pc.GetRoleClass()?.OnSpawn(true);
                         pc.SyncSettings();
-                        pc.RpcResetAbilityCooldown();
+                        if (!Options.IsFirstTurnMeetingActive)
+                            pc.RpcResetAbilityCooldown();
                     });
-                    if (Options.FixFirstKillCooldown.GetBool())
+                    if (Options.FixFirstKillCooldown.GetBool() && !Options.IsFirstTurnMeetingActive)
                         _ = new LateTask(() =>
                         {
                             Main.AllPlayerControls.Do(pc => pc.SetKillCooldown(Main.AllPlayerKillCooldown[pc.PlayerId] - 2f));
                         }, 2f, "FixKillCooldownTask");
                 }
-                _ = new LateTask(() => Main.AllPlayerControls.Do(pc => pc.RpcSetRoleDesync(RoleTypes.Shapeshifter, -3)), 2f, "SetImpostorForServer");
+                _ = new LateTask(() =>
+                {
+                    foreach (var viewer in Main.AllPlayerControls)
+                    {
+                        if (viewer == null || viewer.AmOwner || viewer.Data == null || viewer.Data.Disconnected)
+                            continue;
+
+                        var hasBarrierCandidate =
+                            SelectRolesPatch.ClientReadyBarrierCandidateByViewer.TryGetValue(
+                                viewer.PlayerId,
+                                out var barrierCandidateId);
+
+                        var sender = CustomRpcSender.Create(
+                            $"SetImpostorForServer Viewer={viewer.PlayerId}",
+                            Hazel.SendOption.Reliable,
+                            false);
+
+                        sender.StartMessage(viewer.GetClientId());
+
+                        var targetCount = 0;
+                        var candidateWriteCount = 0;
+
+                        foreach (var target in Main.AllPlayerControls)
+                        {
+                            if (target == null)
+                                continue;
+
+                            var canOverride =
+                                hasBarrierCandidate &&
+                                target.PlayerId == barrierCandidateId;
+
+                            sender.StartRpc(target.NetId, (byte)RpcCalls.SetRole)
+                                .Write((ushort)RoleTypes.Shapeshifter)
+                                .Write(canOverride)
+                                .EndRpc();
+
+                            targetCount++;
+                            if (canOverride)
+                                candidateWriteCount++;
+                        }
+
+                        sender.EndMessage();
+
+                        Logger.Info(
+                            $"CLIENTREADY_INTRO_BARRIER_AB_PHASE1_RETRY2 SetImpostorForServer " +
+                            $"Viewer={viewer.PlayerId} ClientId={viewer.GetClientId()} " +
+                            $"Barrier={hasBarrierCandidate} Candidate=" +
+                            $"{(hasBarrierCandidate ? barrierCandidateId : byte.MaxValue)} " +
+                            $"CandidateWrites={candidateWriteCount} Targets={targetCount} " +
+                            $"RootLength={sender.stream.Length}",
+                            "ClientReadyIntroBarrierAB1Retry2");
+
+                        sender.SendMessage();
+                    }
+                }, 2f, "SetImpostorForServer");
                 if (PlayerControl.LocalPlayer.Is(CustomRoles.GM))
                 {
                     PlayerControl.LocalPlayer.RpcExile();
@@ -382,6 +467,75 @@ namespace TownOfHostForE
 
             GameStates.InTask = true;
             Logger.Info("タスクフェイズ開始", "Phase");
+
+            if (AmongUsClient.Instance.AmHost &&
+                Options.FirstTurnMeeting.GetBool() &&
+                Options.CurrentGameMode == CustomGameMode.Standard &&
+                MeetingStates.FirstMeeting)
+            {
+                GameStates.InTask = false;
+                var firstTurnMeetingLag = 0.23f;
+                if (GameStates.IsOnlineGame)
+                {
+                    var serverName = ServerManager.Instance.CurrentRegion.TranslateName;
+                    if (serverName is StringNames.ServerNA or StringNames.ServerEU or StringNames.ServerSA)
+                        firstTurnMeetingLag = 0.43f;
+                }
+
+                _ = new LateTask(() => TryStartFirstTurnMeeting(), 0.7f + firstTurnMeetingLag, "FirstTurnMeeting");
+            }
+        }
+
+        private static void TryStartFirstTurnMeeting()
+        {
+            if (!Options.IsFirstTurnMeetingActive)
+            {
+                Options.FirstTurnMeetingInProgress = false;
+                Main.isFirstTurn = false;
+                if (GameStates.IsInGame)
+                {
+                    GameStates.InTask = true;
+                }
+                return;
+            }
+
+            if (GameStates.IsMeeting || MeetingStates.MeetingCalled) return;
+
+            var hasUnspawnedPlayer = Main.AllPlayerControls.Any(pc =>
+                pc != null &&
+                pc.Data != null &&
+                !pc.Data.Disconnected &&
+                PlayerState.GetByPlayerId(pc.PlayerId)?.HasSpawned != true);
+
+            if (hasUnspawnedPlayer)
+            {
+                _ = new LateTask(() => TryStartFirstTurnMeeting(), 0.5f, "WaitFirstTurnMeetingSpawn");
+                return;
+            }
+
+            var reporter = PlayerControl.LocalPlayer;
+            if (reporter == null || reporter.Data == null)
+            {
+                Logger.Warn("強制会議の通報者を取得できなかったため中止しました。", "FirstTurnMeeting");
+                Options.FirstTurnMeetingInProgress = false;
+                Main.isFirstTurn = false;
+                if (GameStates.IsInGame)
+                {
+                    GameStates.InTask = true;
+                }
+                return;
+            }
+
+            var target = reporter.Data;
+
+            GameStates.InTask = false;
+            Main.isFirstTurn = false;
+            MeetingDisplay.CreateButtonInfo(reporter, target);
+            MeetingTimeManager.OnReportDeadBody();
+            Utils.NotifyRoles(isForMeeting: true, NoCache: true);
+            Utils.SyncAllSettings();
+            Logger.Info($"{reporter.GetNameWithRole()}を通報者としてゲーム開始直後の強制会議を発動します。", "FirstTurnMeeting");
+            reporter.NoCheckStartMeeting(target);
         }
     }
 }

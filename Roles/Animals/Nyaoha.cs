@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using AmongUs.GameOptions;
+using Hazel;
 using UnityEngine;
 
 using TownOfHostForE.Roles.Core.Interfaces;
@@ -66,6 +67,38 @@ namespace TownOfHostForE.Roles.Animals
         //時間観測用
         private float UpdateTime;
         private int NyaohaVector = 0;
+
+        // NYAOHA_DIRECTION_CONVERGENCE_PERMANENT
+        // Pet直後の強制移動を捨て、全クライアントを同じホスト権限の方向選択へ統一する。
+        private const float DirectionHistoryEpsilonABN8 = 0.05f;
+        private const float DirectionSelectEpsilonABN8 = 0.12f;
+        private const float DirectionSettleSecondsABN8 = 0.75f;
+        private const float DirectionDeadlineSecondsABN8 = 2.50f;
+        private Vector3 LastDirectionPositionABN8 = Vector3.zero;
+        private bool HasLastDirectionPositionABN8 = false;
+        private int LastHorizontalDirectionABN8 = -1;
+        private int ActivationFallbackDirectionABN8 = -1;
+        private Vector3 DirectionBaselineABN8 = Vector3.zero;
+        private float DirectionSettleUntilABN8 = 0f;
+        private float DirectionDeadlineABN8 = 0f;
+        private int DirectionCandidateABN8 = 0;
+        private int DirectionCandidateSamplesABN8 = 0;
+        private int LockedDirectionABN8 = 0;
+
+        // NYAOHA_OWNER_UI_SYNC_PERMANENT
+        // 同一MOD非ホスト本人へは能力権限ではなく表示専用状態だけを同期する。
+        private const byte SyncBeamStateABN8 = 0;
+        private const byte SyncOwnerUiStateABN8 = 1;
+        private bool remoteUiValidABN8 = false;
+        private int remoteFireDelayABN8 = 0;
+        private int remoteSolarBeamCountABN8 = 0;
+        private int remoteAnimationIndexABN8 = -1;
+        private bool remoteVisualActiveABN8 = false;
+        private bool ownerUiSendInitializedABN8 = false;
+        private int lastSentFireDelayABN8 = int.MinValue;
+        private int lastSentSolarBeamCountABN8 = int.MinValue;
+        private int lastSentAnimationIndexABN8 = int.MinValue;
+        private bool lastSentVisualActiveABN8 = false;
         private int SolarBeamCount = 0;
         private Vector3 BeamPostion = new();
         private static List<NyaohaFire> NyaohaFireing = new();
@@ -74,6 +107,10 @@ namespace TownOfHostForE.Roles.Animals
         private int fireCount = -1;
         private int fireDelay = 0;
         private int secTimer = 0;
+        // ROLEBUGTRACE_STAGE2_PHASEB_PRIVATE_STATE_PERMANENT_ACCESSOR
+        // RoleBugTrace専用のread-only診断アクセサ。役職ロジックは変更しない。
+        internal int RoleBugTraceSolarBeamCount => SolarBeamCount;
+        internal int RoleBugTraceFireCount => fireCount;
 
         private Dictionary<int, string> nyaonyaoAnimation = new()
         {
@@ -117,13 +154,26 @@ namespace TownOfHostForE.Roles.Animals
         public override void ApplyGameOptions(IGameOptions opt) => opt.SetVision(false);
         public override string GetProgressText(bool comms = false)
         {
+            var useRemoteUiABN8 =
+                !AmongUsClient.Instance.AmHost &&
+                Player.AmOwner &&
+                remoteUiValidABN8;
+
+            var displayFireDelayABN8 =
+                useRemoteUiABN8 ? remoteFireDelayABN8 : fireDelay;
+
+            var displaySolarBeamCountABN8 =
+                useRemoteUiABN8 ? remoteSolarBeamCountABN8 : SolarBeamCount;
+
             string returnString = "";
 
-            if(SolarBeamCount > 0)
+            if(displaySolarBeamCountABN8 > 0)
             {
-                returnString = fireDelay > 0 ? $"「{fireDelay}」" : "『GO!!』";
-                returnString += $"({SolarBeamCount})";
+                returnString = displayFireDelayABN8 > 0
+                    ? $"「{displayFireDelayABN8}」"
+                    : "『GO!!』";
 
+                returnString += $"({displaySolarBeamCountABN8})";
                 returnString = Utils.ColorString(Color.yellow,returnString);
             }
             else
@@ -143,6 +193,8 @@ namespace TownOfHostForE.Roles.Animals
 
         public override void OnFixedUpdate(PlayerControl player)
         {
+            TrackDirectionSelectionABN8();
+
             UpdateTime -= Time.fixedDeltaTime;
             if (UpdateTime < 0) UpdateTime = 0.5f; //0.5秒ごとの更新
 
@@ -151,29 +203,172 @@ namespace TownOfHostForE.Roles.Animals
                 DelayCheck();
                 AnimationCheck();
                 FireBeam();
+                SendOwnerUiStateRPCABN8();
             }
+        }
+
+        private void TrackDirectionSelectionABN8()
+        {
+            var currentPosition = Player.transform.position;
+
+            if (!firechk)
+            {
+                if (!HasLastDirectionPositionABN8)
+                {
+                    LastDirectionPositionABN8 = currentPosition;
+                    HasLastDirectionPositionABN8 = true;
+                    return;
+                }
+
+                var historyDeltaXABN8 =
+                    currentPosition.x - LastDirectionPositionABN8.x;
+
+                if (historyDeltaXABN8 > DirectionHistoryEpsilonABN8)
+                {
+                    LastHorizontalDirectionABN8 = 1;
+                }
+                else if (historyDeltaXABN8 < -DirectionHistoryEpsilonABN8)
+                {
+                    LastHorizontalDirectionABN8 = -1;
+                }
+
+                LastDirectionPositionABN8 = currentPosition;
+                return;
+            }
+
+            if (LockedDirectionABN8 != 0) return;
+
+            var nowABN8 = Time.realtimeSinceStartup;
+
+            // Pet終了直後の自動補正・強制左移動は基準点へ吸収する。
+            if (nowABN8 < DirectionSettleUntilABN8)
+            {
+                DirectionBaselineABN8 = currentPosition;
+                DirectionCandidateABN8 = 0;
+                DirectionCandidateSamplesABN8 = 0;
+                return;
+            }
+
+            var selectDeltaXABN8 =
+                currentPosition.x - DirectionBaselineABN8.x;
+
+            var candidateABN8 =
+                selectDeltaXABN8 > DirectionSelectEpsilonABN8
+                    ? 1
+                    : selectDeltaXABN8 < -DirectionSelectEpsilonABN8
+                        ? -1
+                        : 0;
+
+            if (candidateABN8 == 0)
+            {
+                DirectionCandidateABN8 = 0;
+                DirectionCandidateSamplesABN8 = 0;
+                return;
+            }
+
+            if (DirectionCandidateABN8 == candidateABN8)
+            {
+                DirectionCandidateSamplesABN8++;
+            }
+            else
+            {
+                DirectionCandidateABN8 = candidateABN8;
+                DirectionCandidateSamplesABN8 = 1;
+            }
+
+            // 一時的な座標揺れではなく、連続2物理フレームの同方向入力で確定する。
+            if (DirectionCandidateSamplesABN8 < 2) return;
+
+            LockedDirectionABN8 = candidateABN8;
+
+        }
+
+        private void ResetDirectionStateABN8(bool resetHistory)
+        {
+            DirectionBaselineABN8 = Vector3.zero;
+            DirectionSettleUntilABN8 = 0f;
+            DirectionDeadlineABN8 = 0f;
+            DirectionCandidateABN8 = 0;
+            DirectionCandidateSamplesABN8 = 0;
+            LockedDirectionABN8 = 0;
+
+            if (resetHistory)
+            {
+                LastDirectionPositionABN8 = Vector3.zero;
+                HasLastDirectionPositionABN8 = false;
+                LastHorizontalDirectionABN8 = -1;
+            }
+            else
+            {
+                LastDirectionPositionABN8 = Player.transform.position;
+                HasLastDirectionPositionABN8 = true;
+            }
+
+            ActivationFallbackDirectionABN8 =
+                LastHorizontalDirectionABN8;
+        }
+
+        private void SetOwnerUiFallbackABN8()
+        {
+            if (AmongUsClient.Instance.AmHost || !Player.AmOwner) return;
+
+            remoteFireDelayABN8 = fireDelay;
+            remoteSolarBeamCountABN8 = SolarBeamCount;
+            remoteAnimationIndexABN8 = AnimationIndex;
+            remoteVisualActiveABN8 = firechk;
+            remoteUiValidABN8 = true;
         }
 
         public override void OnStartMeeting()
         {
-            //仮にソーラービームしていたとしても問答無用で止める。
+            // 会議開始時点から再チャージさせ、各mod clientのlocal表示も揃える。
+            fireDelay = OptionFireDelay.GetInt();
+            secTimer = 0;
+            fireCount = -1;
+            NyaohaVector = 0;
+            nyaohaKawaiinePosition = Vector3.zero;
+
+            // 発射・アニメーション・矢印を停止し、既存Beam状態を同期する。
             ResetNyaoha();
+            ResetDirectionStateABN8(resetHistory: true);
+
         }
+
+        public bool IsPetAbilityActive => firechk;
 
         public override void OnTouchPet(PlayerControl player)
         {
             if (SolarBeamCount <= 0) return;
             if (fireDelay > 0) return;
             if (firechk) return;
+
             firechk = true;
+            ActivationFallbackDirectionABN8 =
+                LastHorizontalDirectionABN8;
+
             nyaohaKawaiinePosition = Player.transform.position;
+            DirectionBaselineABN8 = Player.transform.position;
+
+            var nowABN8 = Time.realtimeSinceStartup;
+            DirectionSettleUntilABN8 =
+                nowABN8 + DirectionSettleSecondsABN8;
+            DirectionDeadlineABN8 =
+                nowABN8 + DirectionDeadlineSecondsABN8;
+            DirectionCandidateABN8 = 0;
+            DirectionCandidateSamplesABN8 = 0;
+            LockedDirectionABN8 = 0;
+
+
             fireCount = 3;
             AnimationIndex = 0;
             SolarBeamCount--;
             fireDelay = OptionFireDelay.GetInt();
             BeamPostion = Player.transform.position;
+
+            SendOwnerUiStateRPCABN8(force: true);
             Utils.NotifyRoles(SpecifySeer: Player);
         }
+
         private void AnimationCheck()
         {
             if (SolarBeamCount <= 0) return;
@@ -226,19 +421,41 @@ namespace TownOfHostForE.Roles.Animals
             }
             else if (fireCount == 0)
             {
-                fireCount = -1;
-                BeamPostion = Player.transform.position;
-                float vectorPos = Player.transform.position.x - nyaohaKawaiinePosition.x;
-                if (vectorPos > 0)
+                var nowABN8 = Time.realtimeSinceStartup;
+
+                // 入力が未確定なら短い選択猶予だけ待ち、期限後は発動前方向へ戻す。
+                if (LockedDirectionABN8 == 0 &&
+                    nowABN8 < DirectionDeadlineABN8)
                 {
-                    NyaohaVector = 1;
-                }
-                else
-                {
-                    NyaohaVector = -1;
+                    return;
                 }
 
+                fireCount = -1;
+                BeamPostion = Player.transform.position;
+
+                var usedFallbackABN8 =
+                    LockedDirectionABN8 == 0;
+
+                NyaohaVector =
+                    usedFallbackABN8
+                        ? ActivationFallbackDirectionABN8
+                        : LockedDirectionABN8;
+
+                if (NyaohaVector == 0)
+                {
+                    NyaohaVector = -1;
+                    usedFallbackABN8 = true;
+                }
+
+                LastHorizontalDirectionABN8 = NyaohaVector;
+
+                var selectionDeltaXABN8 =
+                    Player.transform.position.x -
+                    DirectionBaselineABN8.x;
+
+
                 nyaohaCheck(Player.PlayerId,true);
+                SendBeamStateRPC();
 
                 Utils.NotifyRoles(SpecifySeer: Player);
                 return;
@@ -266,6 +483,7 @@ namespace TownOfHostForE.Roles.Animals
                 pc.SetRealKiller(Player);
                 pc.RpcMurderPlayer(pc);
             }
+            SendBeamStateRPC();
             Utils.NotifyRoles(SpecifySeer: Player);
         }
 
@@ -274,6 +492,10 @@ namespace TownOfHostForE.Roles.Animals
             BeamPostion = Vector3.zero;
             firechk = false;
             AnimationIndex = -1;
+
+            ResetDirectionStateABN8(resetHistory: false);
+            SetOwnerUiFallbackABN8();
+
             nyaohaCheck(Player.PlayerId, false);
             nyaohaCheckP(Player.PlayerId, BeamPostion);
 
@@ -282,7 +504,137 @@ namespace TownOfHostForE.Roles.Animals
                 TargetArrow.RemoveP(pc.PlayerId, Player.PlayerId);
             }
 
+            SendBeamStateRPC();
+            SendOwnerUiStateRPCABN8(force: true);
             Utils.NotifyRoles();
+        }
+
+        // 同一MOD参加者向けのクサネコビーム表示状態を同期する。
+        // バニラ参加者にはCustom RPCを送信しない。
+        private void SendBeamStateRPC()
+        {
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (PlayerControl.LocalPlayer == null || Main.AllPlayerControls == null) return;
+
+            foreach (var target in Main.AllPlayerControls)
+            {
+                if (target == null || target.AmOwner || !target.IsModClient()) continue;
+
+                var clientId = target.GetClientId();
+                if (clientId < 0) continue;
+
+                var writer = AmongUsClient.Instance.StartRpcImmediately(
+                    PlayerControl.LocalPlayer.NetId,
+                    (byte)CustomRPC.CustomRoleSync,
+                    SendOption.Reliable,
+                    clientId);
+
+                writer.Write(Player.PlayerId);
+                writer.Write(SyncBeamStateABN8);
+                writer.Write(firechk);
+                writer.Write(BeamPostion.x);
+                writer.Write(BeamPostion.y);
+                writer.Write(BeamPostion.z);
+
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            }
+        }
+
+        private void SendOwnerUiStateRPCABN8(bool force = false)
+        {
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (PlayerControl.LocalPlayer == null || Player == null) return;
+            if (Player.AmOwner || !Player.IsModClient()) return;
+
+            if (!force &&
+                ownerUiSendInitializedABN8 &&
+                lastSentFireDelayABN8 == fireDelay &&
+                lastSentSolarBeamCountABN8 == SolarBeamCount &&
+                lastSentAnimationIndexABN8 == AnimationIndex &&
+                lastSentVisualActiveABN8 == firechk)
+            {
+                return;
+            }
+
+            var clientIdABN8 = Player.GetClientId();
+            if (clientIdABN8 < 0) return;
+
+            var writerABN8 = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId,
+                (byte)CustomRPC.CustomRoleSync,
+                SendOption.Reliable,
+                clientIdABN8);
+
+            writerABN8.Write(Player.PlayerId);
+            writerABN8.Write(SyncOwnerUiStateABN8);
+            writerABN8.Write(fireDelay);
+            writerABN8.Write(SolarBeamCount);
+            writerABN8.Write(AnimationIndex);
+            writerABN8.Write(firechk);
+
+            AmongUsClient.Instance.FinishRpcImmediately(writerABN8);
+
+            ownerUiSendInitializedABN8 = true;
+            lastSentFireDelayABN8 = fireDelay;
+            lastSentSolarBeamCountABN8 = SolarBeamCount;
+            lastSentAnimationIndexABN8 = AnimationIndex;
+            lastSentVisualActiveABN8 = firechk;
+        }
+
+        public override void ReceiveRPC(MessageReader reader)
+        {
+            if (AmongUsClient.Instance.AmHost) return;
+
+            var syncKindABN8 = reader.ReadByte();
+
+            if (syncKindABN8 == SyncBeamStateABN8)
+            {
+                var fired = reader.ReadBoolean();
+                var beamPosition = new Vector3(
+                    reader.ReadSingle(),
+                    reader.ReadSingle(),
+                    reader.ReadSingle());
+
+                nyaohaCheck(Player.PlayerId, fired);
+                nyaohaCheckP(Player.PlayerId, beamPosition);
+
+                var localPlayer = PlayerControl.LocalPlayer;
+                if (localPlayer != null && localPlayer.PlayerId != Player.PlayerId)
+                {
+                    if (fired)
+                    {
+                        TargetArrow.Add(
+                            localPlayer.PlayerId,
+                            Player.PlayerId,
+                            beamPosition);
+                    }
+                    else
+                    {
+                        TargetArrow.RemoveP(
+                            localPlayer.PlayerId,
+                            Player.PlayerId);
+                    }
+                }
+
+                return;
+            }
+
+            if (syncKindABN8 != SyncOwnerUiStateABN8) return;
+
+            var syncedFireDelayABN8 = reader.ReadInt32();
+            var syncedSolarBeamCountABN8 = reader.ReadInt32();
+            var syncedAnimationIndexABN8 = reader.ReadInt32();
+            var syncedVisualActiveABN8 = reader.ReadBoolean();
+
+            if (!Player.AmOwner) return;
+
+            remoteFireDelayABN8 = syncedFireDelayABN8;
+            remoteSolarBeamCountABN8 = syncedSolarBeamCountABN8;
+            remoteAnimationIndexABN8 = syncedAnimationIndexABN8;
+            remoteVisualActiveABN8 = syncedVisualActiveABN8;
+            remoteUiValidABN8 = true;
+
         }
 
         private void nyaohaCheck(byte id,bool change)
@@ -355,6 +707,11 @@ namespace TownOfHostForE.Roles.Animals
             foreach (var nyaoha in NyaohaKawaiine)
             {
                 var Nyaoha = Utils.GetPlayerById(nyaoha);
+
+                // NYAOHA_DISCONNECTED_ARROW_GUARD_PERMANENT
+                // 離脱済みクサネコはPlayerControlを取得できないため描画対象外にする。
+                if (Nyaoha == null) continue;
+
                 targetSet = TargetArrow.GetArrowsP(Nyaoha, seer.PlayerId);
                 targetSet = $"ｺﾞ{targetSet}ｺﾞ";
                 //サイズ変更
@@ -378,9 +735,27 @@ namespace TownOfHostForE.Roles.Animals
 
         public override string OverrideSpecialText()
         {
-            if (AnimationIndex == -1 || nyaonyaoAnimation.Count <= AnimationIndex) return "";
+            var useRemoteUiABN8 =
+                !AmongUsClient.Instance.AmHost &&
+                Player.AmOwner &&
+                remoteUiValidABN8;
 
-            return nyaonyaoAnimation[AnimationIndex];
+            var displayVisualActiveABN8 =
+                useRemoteUiABN8 ? remoteVisualActiveABN8 : firechk;
+
+            var displayAnimationIndexABN8 =
+                useRemoteUiABN8
+                    ? remoteAnimationIndexABN8
+                    : AnimationIndex;
+
+            if (!displayVisualActiveABN8 ||
+                displayAnimationIndexABN8 == -1 ||
+                nyaonyaoAnimation.Count <= displayAnimationIndexABN8)
+            {
+                return "";
+            }
+
+            return nyaonyaoAnimation[displayAnimationIndexABN8];
         }
 
         private class NyaohaFire

@@ -495,19 +495,19 @@ namespace TownOfHostForE
                     if (subArgs == "b" || subArgs == "bet")
                     {
                         string cmdList = "【勝利陣営予想投票機能専用コマンド一覧】\n";
-                        cmdList = cmdList + "利用開始：「/b 承認」" + "\n";
-                        cmdList = cmdList + "利用停止：「/b 非承認」" + "\n";
-                        cmdList = cmdList + "持ち点確認：「/bp」" + "\n";
-                        cmdList = cmdList + "全員の持ち点確認：「/albp」" + "\n";
-                        cmdList = cmdList + "称号ショップ：「/psl」" + "\n";
-                        cmdList = cmdList + "称号購入：「/bs {買う称号のテキスト}」" + "\n";
-                        cmdList = cmdList + "称号ガチャ：「/bs ガチャ」" + "\n";
-                        cmdList = cmdList + "所持称号確認：「/msl」" + "\n";
-                        cmdList = cmdList + "今の称号を保存する：「/sms {保存先の番号}」" + "\n";
-                        cmdList = cmdList + "所持している称号を適用する：「/ss {対象の番号}」" + "\n";
+                        cmdList = cmdList + "利用開始：「/cmd b 承認」" + "\n";
+                        cmdList = cmdList + "利用停止：「/cmd b 非承認」" + "\n";
+                        cmdList = cmdList + "持ち点確認：「/cmd bp」" + "\n";
+                        cmdList = cmdList + "全員の持ち点確認：「/cmd albp」" + "\n";
+                        cmdList = cmdList + "称号ショップ：「/cmd psl」" + "\n";
+                        cmdList = cmdList + "称号購入：「/cmd bs {買う称号のテキスト}」" + "\n";
+                        cmdList = cmdList + "称号ガチャ：「/cmd bs ガチャ」" + "\n";
+                        cmdList = cmdList + "所持称号確認：「/cmd msl」" + "\n";
+                        cmdList = cmdList + "今の称号を保存する：「/cmd sms {保存先の番号}」" + "\n";
+                        cmdList = cmdList + "所持している称号を適用する：「/cmd ss {対象の番号}」" + "\n";
                         cmdList = cmdList + "---霊界のみ---" + "\n";
-                        cmdList = cmdList + "投票：「/b {勝利予想陣営名称}」" + "\n";
-                        cmdList = cmdList + "追加ベット投票「/b {勝利陣営名称} {追加するポイント数}」" + "\n";
+                        cmdList = cmdList + "投票：「/cmd b {勝利予想陣営名称}」" + "\n";
+                        cmdList = cmdList + "追加ベット投票「/cmd b {勝利陣営名称} {追加するポイント数}」" + "\n";
                         Utils.SendMessage(cmdList, player.PlayerId, "");
                     }
                 }
@@ -568,7 +568,7 @@ namespace TownOfHostForE
 
             if (args[0] == "/resetbp")
             {
-                if (!AmongUsClient.Instance.AmHost) return true;
+                if (player == null || player != PlayerControl.LocalPlayer || !AmongUsClient.Instance.AmHost) return true;
                 string subArgs = args.Length < 2 ? "" : args[1];
                 Logger.Info("SubArgs" + subArgs, "BETWIN");
                 if (subArgs == "write")
@@ -612,7 +612,7 @@ namespace TownOfHostForE
                     {
                         if (BetPoint[player.FriendCode].Agree)
                         {
-                            Utils.SendMessage("君のデータは保管済みさ。消して欲しければ「/b 非承認」と打ち込んでくれ", player.PlayerId, "");
+                            Utils.SendMessage("君のデータは保管済みさ。消して欲しければ「/cmd b 非承認」と打ち込んでくれ", player.PlayerId, "");
                             return true;
                         }
 
@@ -657,13 +657,13 @@ namespace TownOfHostForE
                     //登録されていない = 初回利用者
                     if (!BetPoint.ContainsKey(player.FriendCode))
                     {
-                        Utils.SendMessage("本機能は利用者のフレンドコードを取得するため、同意が必要です\r\n機能を利用する場合「/b 承認」と打ち込んで下さい。", player.PlayerId, "");
+                        Utils.SendMessage("本機能は利用者のフレンドコードを取得するため、同意が必要です\r\n機能を利用する場合「/cmd b 承認」と打ち込んで下さい。", player.PlayerId, "");
                         return true;
                     }
                     //登録されているけど同意してない人
                     else if (!BetPoint[player.FriendCode].Agree)
                     {
-                        Utils.SendMessage("本機能は利用者のフレンドコードを取得するため、同意が必要です。\r\n機能を利用する場合「/b 承認」と打ち込んで下さい。", player.PlayerId, "");
+                        Utils.SendMessage("本機能は利用者のフレンドコードを取得するため、同意が必要です。\r\n機能を利用する場合「/cmd b 承認」と打ち込んで下さい。", player.PlayerId, "");
                         return true;
                     }
                     //フレンドコードがない人
@@ -1379,6 +1379,12 @@ namespace TownOfHostForE
 
         private static void ReadCsvToDictionaryForPlayerData()
         {
+            if (!File.Exists(BET_SETTING__PATH))
+            {
+                readedCSV = false;
+                return;
+            }
+
             try
             {
                 Logger.Msg("ポイントデータ読み取り開始", "BETREAD");
@@ -1448,6 +1454,11 @@ namespace TownOfHostForE
 
         private static void ReadCsvToDictionaryForShopData()
         {
+            if (!File.Exists(SHOP_SETTING__PATH))
+            {
+                return;
+            }
+
             try
             {
                 //if (!AmongUsClient.Instance.AmHost) return;

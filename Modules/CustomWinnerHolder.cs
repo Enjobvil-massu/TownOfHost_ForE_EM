@@ -38,21 +38,30 @@ namespace TownOfHostForE
         /// <summary><para>WinnerTeamに値を代入します。</para><para>すでに代入されている場合、AdditionalWinnerRolesに追加します。</para></summary>
         public static void SetWinnerOrAdditonalWinner(CustomWinner winner)
         {
+            var before = WinnerTeam;
             if (WinnerTeam == CustomWinner.Default) WinnerTeam = winner;
             else AdditionalWinnerRoles.Add((CustomRoles)winner);
+            // ROLEBUGTRACE_STAGE1B_PERMANENT
+            RoleBugTrace.Winner("SetWinnerOrAdditional", before, WinnerTeam, winner);
         }
         /// <summary><para>WinnerTeamに値を代入します。</para><para>すでに代入されている場合、既存の値をAdditionalWinnerRolesに追加してから代入します。</para></summary>
         public static void ShiftWinnerAndSetWinner(CustomWinner winner)
         {
+            var before = WinnerTeam;
             if (WinnerTeam != CustomWinner.Default)
                 AdditionalWinnerRoles.Add((CustomRoles)WinnerTeam);
             WinnerTeam = winner;
+            // ROLEBUGTRACE_STAGE1B_PERMANENT
+            RoleBugTrace.Winner("ShiftWinnerAndSetWinner", before, WinnerTeam, winner);
         }
         /// <summary><para>既存の値をすべて削除してから、WinnerTeamに値を代入します。</para></summary>
         public static void ResetAndSetWinner(CustomWinner winner)
         {
+            var before = WinnerTeam;
             Reset();
             WinnerTeam = winner;
+            // ROLEBUGTRACE_STAGE1B_PERMANENT
+            RoleBugTrace.Winner("ResetAndSetWinner", before, WinnerTeam, winner);
         }
 
         public static MessageWriter WriteTo(MessageWriter writer)

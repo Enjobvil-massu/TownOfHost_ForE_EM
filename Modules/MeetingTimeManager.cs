@@ -36,6 +36,15 @@ namespace TownOfHostForE.Modules
         }
         public static void OnReportDeadBody()
         {
+            // SCALES_PORT_PERMANENT: 天秤専用会議だけ議論0秒・役職設定の投票時間を適用する
+            if (Scales.TryGetSpecialMeetingTime(out var scalesVotingTime))
+            {
+                DiscussionTime = 0;
+                VotingTime = scalesVotingTime;
+                Logger.Info($"DiscussionTime:{DiscussionTime}, VotingTime{VotingTime}", "MeetingTimeManager.Scales");
+                return;
+            }
+
             if (Options.AllAliveMeeting.GetBool() && Utils.IsAllAlive)
             {
                 DiscussionTime = 0;
