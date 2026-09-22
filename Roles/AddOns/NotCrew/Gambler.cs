@@ -38,6 +38,11 @@ public static class Gambler
         ChangeGuessDeathReason,
         GuessCantWhiteCrew,
     }
+    // GAMBLER_MASTER_OFF_ASSIGNMENT_AB_V1: single authority for Gambler assignment enablement
+    public static bool IsAssignmentEnabled =>
+        CustomRoleSpawnChances.TryGetValue(CustomRoles.Gambler, out var option) &&
+        option.GetBool();
+
     public static void SetupCustomOption()
     {
         SetupRoleOptions(Id, TabGroup.Addons, CustomRoles.Gambler,RoleColor);
@@ -88,12 +93,13 @@ public static class Gambler
             { "%roleTypes%", Utils.ColorString(Palette.AcceptedGreen, GetString("Animals")) }
         };
 
-        GaCanGuessTime = IntegerOptionItem.Create(Id + 10, OptionName.GuesserCanGuessTimes, new(1, 15, 1), 3, TabGroup.Addons, false)
-                .SetValueFormat(OptionFormat.Players);
-        GaCanGuessVanilla = BooleanOptionItem.Create(Id + 12, OptionName.EGCanGuessVanilla, false, TabGroup.Addons, false);
-        GaCanGuessTaskDoneSnitch = BooleanOptionItem.Create(Id + 13, OptionName.EGCanGuessTaskDoneSnitch, false, TabGroup.Addons, false);
-        ChangeGuessDeathReason = BooleanOptionItem.Create(Id + 15, OptionName.ChangeGuessDeathReason, false, TabGroup.Addons, false);
-        GaCantWhiteCrew = BooleanOptionItem.Create(Id + 16, OptionName.GuessCantWhiteCrew, false, TabGroup.Addons, false);
+        GaCanGuessTime = IntegerOptionItem.Create(Id + 10, "GamblerGuessMaxTimes", new(1, 15, 1), 3, TabGroup.Addons, false)
+                .SetParent(CustomRoleSpawnChances[CustomRoles.Gambler])
+                .SetValueFormat(OptionFormat.Times);
+        GaCanGuessVanilla = BooleanOptionItem.Create(Id + 12, OptionName.EGCanGuessVanilla, false, TabGroup.Addons, false).SetParent(CustomRoleSpawnChances[CustomRoles.Gambler]);
+        GaCanGuessTaskDoneSnitch = BooleanOptionItem.Create(Id + 13, OptionName.EGCanGuessTaskDoneSnitch, false, TabGroup.Addons, false).SetParent(CustomRoleSpawnChances[CustomRoles.Gambler]);
+        ChangeGuessDeathReason = BooleanOptionItem.Create(Id + 15, OptionName.ChangeGuessDeathReason, false, TabGroup.Addons, false).SetParent(CustomRoleSpawnChances[CustomRoles.Gambler]);
+        GaCantWhiteCrew = BooleanOptionItem.Create(Id + 16, OptionName.GuessCantWhiteCrew, false, TabGroup.Addons, false).SetParent(CustomRoleSpawnChances[CustomRoles.Gambler]);
     }
     [GameModuleInitializer]
     public static void Init()

@@ -97,9 +97,13 @@ namespace TownOfHostForE.Roles.Impostor
 
         private static void SetupOptionItem()
         {
-            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 35f, false)
+            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 35f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
-            TalktiveKillCooldown = FloatOptionItem.Create(RoleInfo, 11, OptionName.TalktiveKillCool, new(2.5f, 180f, 2.5f), 25f, false)
+            TalktiveKillCooldown = FloatOptionItem.Create(RoleInfo, 11, OptionName.TalktiveKillCool, new(2.5f, 180f, 0.5f), 25f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
         }
         public override void Add()

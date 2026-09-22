@@ -129,6 +129,21 @@ namespace TownOfHostForE.Roles.Animals
             { 12, "\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　＼＼　　\n　　　　　　　　　　　　　　　　　　　＼　　\n　　　　　　　　　　　　　─　　　　　　＼　\n　　　　　　　　　　　　　　　　─　　＼＼＼\n　　　　　　　　　　　　　─　─　─　─　＼\n　　　　　　　　　　　　　　─　─　─　─＼\n　　　　　　　　　　　　　　　　　─　─　─\n　　　　　　　　　　─　─　─　─　─　─／\n　　　　　　　　　　　─　─　─　─　─　／\n　　　　　　　　　　　　　　　　─　　／／／\n　　　　　　　　　　　　　─　　　　　　／　\n　　　　　　　　　　　　　　　　　　　／　　\n　　　　　　　　　　　　　　　　　　／／　　"},
             { 13, "\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　─　　\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　─　─\n　　　　　　　　　　　　　　　　　　　　─　\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　─　─　\n　　　　　　　　　　　　　　　　　　　─　─\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　─　　\n　　　　　　　　　　　　　　　　　　　　　　\n　　　　　　　　　　　　　　　　　　　　　　"},
         };
+        // NYAOHA_REMOTE_VANILLA_SAFE_BEAM_ANIMATION_AB_V2:
+        // Vanilla本人だけ発射方向フレームを小さいSetName payloadへ置換する。
+        // 充填フレーム0-5、ゲームロジック、Host/MOD表示は変更しない。
+        private readonly Dictionary<int, string> nyaohaVanillaSafeBeamAnimationABV2 = new()
+        {
+            { 6, "\n◀━●" },
+            { 7, "\n◀━━●" },
+            { 8, "\n◀━━━●" },
+            { 9, "\n◀━━━━●" },
+            { 10, "\n●━▶" },
+            { 11, "\n●━━▶" },
+            { 12, "\n●━━━▶" },
+            { 13, "\n●━━━━▶" }
+        };
+
         private enum OptionName
         {
             NyaohaSolarBeamCount,
@@ -137,7 +152,9 @@ namespace TownOfHostForE.Roles.Animals
 
         private static void SetupOptionItem()
         {
-            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 30f, false)
+            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             OptionSolarBeamCount = IntegerOptionItem.Create(RoleInfo, 11, OptionName.NyaohaSolarBeamCount, new(0, 10, 1), 1, false)
                 .SetValueFormat(OptionFormat.None);
@@ -371,9 +388,9 @@ namespace TownOfHostForE.Roles.Animals
 
         private void AnimationCheck()
         {
-            if (SolarBeamCount <= 0) return;
-
-            //発射中のみ描画
+            // NYAOHA_LAST_SHOT_ANIMATION_AB_V1:
+            // 残弾チェックはOnTouchPet側で完了している。
+            // 発射開始後はSolarBeamCountが0でも現在の1発の描画を最後まで進める。
             if (!firechk) return;
 
             if (AnimationIndex <= nyaonyaoAnimation.Count -1)
@@ -416,7 +433,10 @@ namespace TownOfHostForE.Roles.Animals
             if (fireCount > 0)
             {
                 fireCount--;
-                Utils.NotifyRoles(Player);
+                // NYAOHA_FIRECOUNT_NOTIFY_TARGET_AB_V1:
+                // Playerを第1引数へ渡すとisForMeetingとしてbool評価され、全Vanilla viewer更新になる。
+                // 他のクサネコ更新経路と同様に能力所有者だけを明示指定する。
+                Utils.NotifyRoles(SpecifySeer: Player);
                 return;
             }
             else if (fireCount == 0)
@@ -469,6 +489,25 @@ namespace TownOfHostForE.Roles.Animals
                 return;
             }
 
+            // NYAOHA_GHOST_BEAM_ARROW_AB_V1
+            // 既存の生存者用ビーム処理・キル判定には触れず、死亡viewer用の表示データだけを追加する。
+            foreach (var ghostViewerAB1 in Main.AllPlayerControls)
+            {
+                if (ghostViewerAB1 == null ||
+                    ghostViewerAB1.Data == null ||
+                    ghostViewerAB1.Data.Disconnected ||
+                    ghostViewerAB1.IsAlive() ||
+                    ghostViewerAB1.PlayerId == Player.PlayerId)
+                {
+                    continue;
+                }
+
+                TargetArrow.Add(
+                    ghostViewerAB1.PlayerId,
+                    Player.PlayerId,
+                    BeamPostion);
+                nyaohaCheckP(Player.PlayerId, BeamPostion);
+            }
             foreach (var pc in Main.AllAlivePlayerControls)
             {
                 if (pc.PlayerId == Player.PlayerId) continue;
@@ -499,6 +538,23 @@ namespace TownOfHostForE.Roles.Animals
             nyaohaCheck(Player.PlayerId, false);
             nyaohaCheckP(Player.PlayerId, BeamPostion);
 
+            // NYAOHA_GHOST_BEAM_ARROW_AB_V1
+            // 発射中に死亡したviewerを含め、幽霊向け矢印だけを対称に破棄する。
+            foreach (var ghostViewerAB1 in Main.AllPlayerControls)
+            {
+                if (ghostViewerAB1 == null ||
+                    ghostViewerAB1.Data == null ||
+                    ghostViewerAB1.Data.Disconnected ||
+                    ghostViewerAB1.IsAlive() ||
+                    ghostViewerAB1.PlayerId == Player.PlayerId)
+                {
+                    continue;
+                }
+
+                TargetArrow.RemoveP(
+                    ghostViewerAB1.PlayerId,
+                    Player.PlayerId);
+            }
             foreach (var pc in Main.AllAlivePlayerControls)
             {
                 TargetArrow.RemoveP(pc.PlayerId, Player.PlayerId);
@@ -689,8 +745,8 @@ namespace TownOfHostForE.Roles.Animals
             var cRole = seer.GetCustomRole();
             if (cRole == CustomRoles.Nyaoha) return "";
 
-            //シーアが死んでいたら処理しない。
-            if (!seer.IsAlive()) return "";
+            // NYAOHA_GHOST_BEAM_ARROW_AB_V1
+            // 死亡viewerにも既存と同じビーム方向Markを表示する。
 
             List<byte> NyaohaKawaiine = new();
             //
@@ -753,6 +809,38 @@ namespace TownOfHostForE.Roles.Animals
                 nyaonyaoAnimation.Count <= displayAnimationIndexABN8)
             {
                 return "";
+            }
+
+            // NYAOHA_REMOTE_VANILLA_SAFE_CHARGE_AND_BEAM_AB_V4:
+            // Vanillaクサネコ本人には小型チャージ光点と小型ビームだけを送る。
+            // Host local / Remote MOD / ビームゲームロジックは変更しない。
+            var useRemoteVanillaAnimationABV4 =
+                AmongUsClient.Instance.AmHost &&
+                !Player.AmOwner &&
+                !Player.IsModClient();
+
+            if (useRemoteVanillaAnimationABV4)
+            {
+                if (displayAnimationIndexABN8 < 6)
+                {
+                    return displayAnimationIndexABN8 switch
+                    {
+                        0 => "\n<color=#FF8C00><size=40%>●</size></color>",
+                        1 => "\n<color=#FF8C00><size=60%>●</size></color>",
+                        2 => "\n<color=#FF8C00><size=80%>●</size></color>",
+                        3 => "\n<color=#FF8C00><size=100%>●</size></color>",
+                        4 => "\n<color=#FF8C00><size=130%>●</size></color>",
+                        5 => "\n<color=#FF8C00><size=160%>●</size></color>",
+                        _ => ""
+                    };
+                }
+
+                if (nyaohaVanillaSafeBeamAnimationABV2.TryGetValue(
+                    displayAnimationIndexABN8,
+                    out var vanillaSafeBeamFrameABV2))
+                {
+                    return vanillaSafeBeamFrameABV2;
+                }
             }
 
             return nyaonyaoAnimation[displayAnimationIndexABN8];

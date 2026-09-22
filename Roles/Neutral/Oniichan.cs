@@ -64,7 +64,8 @@ namespace TownOfHostForE.Roles.Neutral
 
         private static void SetupOptionItem()
         {
-            KillCool = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(5, 100, 5), 30, false);
+            KillCool = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(5, 100, 1f), 30, false)
+                .SetLegacySavedIndexMultiplier(5);
         }
 
         public override void Add()

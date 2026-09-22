@@ -56,7 +56,8 @@ public sealed class OtakuPrincess : RoleBase, IKiller
     private static void SetupOptionItem()
     {
         PrinceMax = IntegerOptionItem.Create(RoleInfo, 10, OptionName.MaxOtakuCount, new(1, 14, 1), 2, false);
-        KillCool = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(5, 100, 5), 30, false);
+        KillCool = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(5, 100, 1f), 30, false)
+            .SetLegacySavedIndexMultiplier(5);
     }
 
     public override void Add()

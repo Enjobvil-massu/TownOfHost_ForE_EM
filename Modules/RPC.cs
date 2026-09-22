@@ -158,9 +158,9 @@ namespace TownOfHostForE
                     && !(callId == (byte)CustomRPC.VersionCheck || callId == (byte)CustomRPC.RequestRetryVersionCheck)) //ホストではなく、CustomRPCで、VersionCheckではない
                 {
                     Logger.Warn($"{__instance?.Data?.PlayerName}:{callId}({RPC.GetRpcName(callId)}) ホスト以外から送信されたためキャンセルしました。", "CustomRPC");
-                    if (AmongUsClient.Instance.AmHost)
+                    if (AmongUsClient.Instance.AmHost && __instance.TryGetClientId(out var kickClientId))
                     {
-                        AmongUsClient.Instance.KickPlayer(__instance.GetClientId(), false);
+                        AmongUsClient.Instance.KickPlayer(kickClientId, false);
                         Logger.Warn($"不正なRPCを受信したため{__instance?.Data?.PlayerName}をキックしました。", "Kick");
                         Logger.SendInGame(string.Format(GetString("Warning.InvalidRpc"), __instance?.Data?.PlayerName));
                     }
@@ -250,13 +250,31 @@ namespace TownOfHostForE
                         Version version = Version.Parse(reader.ReadString());
                         string tag = reader.ReadString();
                         string forkId = 3 <= version.Major ? reader.ReadString() : Main.OriginalForkId;
+                        // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("VERSIONCHECK_RECEIVE",
+                                $"SenderPlayerId={__instance.PlayerId} SenderClientId={__instance.GetClientId()} " +
+                                $"Version={version} Tag={tag} ForkId={forkId}"));
                         Main.playerVersion[__instance.PlayerId] = new PlayerVersion(version, tag, forkId);
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_WRITE",
+                                $"Source=VersionCheck PlayerId={__instance.PlayerId} CountAfter={Main.playerVersion.Count}"));
 
-                        if (AmongUsClient.Instance.AmHost && RPC.IsCompatibleVersion(__instance.PlayerId))
+                        if (AmongUsClient.Instance.AmHost && RPC.IsCompatibleVersion(__instance.PlayerId)
+                            && __instance.TryGetClientId(out var targetClientId))
                         {
-                            var targetClientId = __instance.GetClientId();
+                            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_CREATE",
+                                    $"Name=Sync_Settings_After_Version_Check DelayMs=500 TargetClientId={targetClientId}"));
                             _ = new LateTask(
-                                () => RPC.SyncCustomSettingsRPC(targetClientId),
+                                () =>
+                                {
+                                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_FIRE",
+                                            $"Name=Sync_Settings_After_Version_Check TargetClientId={targetClientId}"));
+                                    RPC.SyncCustomSettingsRPC(targetClientId, "VersionCheck.LateTask");
+                                },
                                 0.5f,
                                 "Sync Settings After Version Check");
                         }
@@ -264,14 +282,26 @@ namespace TownOfHostForE
                     catch
                     {
                         Logger.Warn($"{__instance?.Data?.PlayerName}({__instance.PlayerId}): バージョン情報が無効です", "RpcVersionCheck");
+                        // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_CREATE",
+                                $"Name=Retry_Version_Check_Task DelayMs=1000 CurrentSenderClientId={__instance.GetClientId()}"));
                         _ = new LateTask(() =>
                         {
-                            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.RequestRetryVersionCheck, SendOption.Reliable, __instance.GetClientId());
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_FIRE",
+                                    $"Name=Retry_Version_Check_Task CurrentSenderClientId={__instance.GetClientId()}"));
+                            if (!__instance.TryGetClientId(out var clientId)) return;
+                            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.RequestRetryVersionCheck, SendOption.Reliable, clientId);
                             AmongUsClient.Instance.FinishRpcImmediately(writer);
                         }, 1f, "Retry Version Check Task");
                     }
                     break;
                 case CustomRPC.RequestRetryVersionCheck:
+                    // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("VERSIONCHECK_RETRY_REQUEST_RECEIVE",
+                            $"SenderPlayerId={__instance.PlayerId} SenderClientId={__instance.GetClientId()}"));
                     RPC.RpcVersionCheck();
                     break;
                 case CustomRPC.SyncCustomSettings:
@@ -401,7 +431,6 @@ namespace TownOfHostForE
     }
     static class RPC
     {
-        private const int MaxOptionsPerSyncPacket = 150;
         private const int MaxChatCommandRequestLength = 64;
         private const string ChatCommandRequestMarker = "MOD_CMD_REQUEST_PERMANENT";
         private const string MixedClientProtocolSuffix = "|mixed-client-sync-v1";
@@ -612,7 +641,9 @@ namespace TownOfHostForE
 
         // 同一プロトコルのTOH4Eクライアントだけに設定を分割送信する。
         // バニラ、旧TOH4E、他MODには設定CustomRPCを送信しない。
-        public static void SyncCustomSettingsRPC(int targetId = -1)
+        public static void SyncCustomSettingsRPC(
+            int targetId = -1,
+            string origin = "Unknown")
         {
             var client = AmongUsClient.Instance;
             var localPlayer = PlayerControl.LocalPlayer;
@@ -625,86 +656,16 @@ namespace TownOfHostForE
                 return;
             }
 
-            if (targetId >= 0)
-            {
-                if (targetId == client.ClientId) return;
-
-                var targetClient = client.allClients.ToArray()
-                    .FirstOrDefault(data => data.Id == targetId);
-
-                if (targetClient?.Character == null ||
-                    !IsCompatibleVersion(targetClient.Character.PlayerId))
-                {
-                    return;
-                }
-
-                SendCustomSettingsToClient(localPlayer, targetId);
-                return;
-            }
-
-            foreach (var targetClient in client.allClients.ToArray())
-            {
-                if (targetClient?.Character == null ||
-                    targetClient.Id == client.ClientId)
-                {
-                    continue;
-                }
-
-                if (!IsCompatibleVersion(targetClient.Character.PlayerId)) {
-                    continue;
-                }
-
-                SendCustomSettingsToClient(localPlayer, targetClient.Id);
-            }
-        }
-
-        private static void SendCustomSettingsToClient(
-            PlayerControl localPlayer,
-            int targetClientId)
-        {
             var totalOptions = OptionItem.AllOptions.Count;
+            var callId = CriticalStartFlowPacketDiagnostic.BeginSettingsCall(
+                origin,
+                targetId,
+                totalOptions);
 
-            for (
-                var startIndex = 0;
-                startIndex < totalOptions;
-                startIndex += MaxOptionsPerSyncPacket
-            )
-            {
-                var optionCount =
-                    Math.Min(
-                        MaxOptionsPerSyncPacket,
-                        totalOptions - startIndex
-                    );
-
-                var writer =
-                    AmongUsClient.Instance.StartRpcImmediately(
-                        localPlayer.NetId,
-                        (byte)CustomRPC.SyncCustomSettings,
-                        SendOption.Reliable,
-                        targetClientId
-                    );
-
-                writer.WritePacked(startIndex);
-                writer.WritePacked(optionCount);
-
-                for (
-                    var index = 0;
-                    index < optionCount;
-                    index++
-                )
-                {
-                    writer.WritePacked(
-                        OptionItem.AllOptions[startIndex + index].GetValue()
-                    );
-                }
-
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-
-                Logger.Info(
-                    $"target={targetClientId}, start={startIndex}, count={optionCount}, total={totalOptions}",
-                    "SyncCustomSettings"
-                );
-            }
+            var queuedTargets = SettingsPacketPacer.Enqueue(targetId, origin);
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "SETTINGS_CALL_RETURN",
+                $"Call={callId} Origin={origin} QueuedTargets={queuedTargets}");
         }
         public static void PlaySoundRPC(byte PlayerID, Sounds sound)
         {
@@ -717,30 +678,71 @@ namespace TownOfHostForE
         }
         public static void ExileAsync(PlayerControl player)
         {
+            // RENEGADE_R2B_EXILE_ASYNC_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockForcedExile(
+                    player,
+                    "RPC.ExileAsync"))
+            {
+                return;
+            }
+
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.Exiled, Hazel.SendOption.Reliable, -1);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
             player.Exiled();
         }
-        public static void RpcVersionCheck()
+        public static void RpcVersionCheck(int targetClientId = -1)
         {
             var localPlayer = PlayerControl.LocalPlayer;
             if (localPlayer == null)
             {
-                _ = new LateTask(RpcVersionCheck, 0.5f, "Wait LocalPlayer Version Check");
+                // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_CREATE",
+                        $"Name=Wait_LocalPlayer_Version_Check DelayMs=500 TargetClientId={targetClientId}"));
+                _ = new LateTask(
+                    () =>
+                    {
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_FIRE",
+                                $"Name=Wait_LocalPlayer_Version_Check TargetClientId={targetClientId}"));
+                        RpcVersionCheck(targetClientId);
+                    },
+                    0.5f,
+                    "Wait LocalPlayer Version Check");
                 return;
             }
 
             var client = AmongUsClient.Instance;
             if (client == null)
             {
-                _ = new LateTask(RpcVersionCheck, 0.5f, "Wait AmongUsClient Version Check");
+                // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_CREATE",
+                        $"Name=Wait_AmongUsClient_Version_Check DelayMs=500 TargetClientId={targetClientId}"));
+                _ = new LateTask(
+                    () =>
+                    {
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("LATE_TASK_FIRE",
+                                $"Name=Wait_AmongUsClient_Version_Check TargetClientId={targetClientId}"));
+                        RpcVersionCheck(targetClientId);
+                    },
+                    0.5f,
+                    "Wait AmongUsClient Version Check");
                 return;
             }
+
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("VERSIONCHECK_SEND",
+                    $"TargetClientId={targetClientId} LocalClientId={client.ClientId} " +
+                    $"LocalPlayerId={localPlayer.PlayerId} NetId={localPlayer.NetId}"));
 
             MessageWriter writer = client.StartRpcImmediately(
                 localPlayer.NetId,
                 (byte)CustomRPC.VersionCheck,
-                SendOption.Reliable);
+                SendOption.Reliable,
+                targetClientId);
 
             writer.Write(Main.PluginVersion);
             writer.Write(CurrentVersionTag);
@@ -752,6 +754,10 @@ namespace TownOfHostForE
                 Main.PluginVersion,
                 CurrentVersionTag,
                 Main.ForkId);
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_WRITE",
+                    $"Source=RpcVersionCheckLocal PlayerId={localPlayer.PlayerId} CountAfter={Main.playerVersion.Count}"));
         }
         public static void SendDeathReason(byte playerId, CustomDeathReason deathReason)
         {
@@ -910,7 +916,8 @@ namespace TownOfHostForE
         public static void ShowPopUp(this PlayerControl pc, string msg)
         {
             if (!AmongUsClient.Instance.AmHost) return;
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.ShowPopUp, SendOption.Reliable, pc.GetClientId());
+            if (!pc.TryGetClientId(out var clientId)) return;
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.ShowPopUp, SendOption.Reliable, clientId);
             writer.Write(msg);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }

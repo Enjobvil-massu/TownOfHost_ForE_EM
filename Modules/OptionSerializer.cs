@@ -11,7 +11,7 @@ namespace TownOfHostForE.Modules;
 public static class OptionSerializer
 {
     private static LogHandler logger = Logger.Handler(nameof(OptionSerializer));
-    private const string Header = "%TOHOptions%", Footer = "%End%";
+    private const string Header = "%TOHOptionsV2%", PreviousHeader = "%TOHOptionsV1%", LegacyHeader = "%TOHOptions%", Footer = "%End%";
     private static readonly DirectoryInfo exportDir = new("./TOH_DATA/OptionOutputs");
     public static void SaveToClipboard()
     {
@@ -105,6 +105,28 @@ public static class OptionSerializer
         }
 
         var headerAt = source.IndexOf(Header);
+        var headerLength = Header.Length;
+        var migrateLegacyValueRules = false;
+        var migrateMadmateVentCooldown = false;
+
+        // MADMATE_VENT_COOLDOWN_5_TO_1_EXPORT_MIGRATION_V2:
+        // V1はID91528が旧5秒刻みだった配布基準(v6180.309以前)として扱う。
+        // V2からは現行1秒刻みindexをそのまま保存・復元する。
+        if (headerAt < 0)
+        {
+            headerAt = source.IndexOf(PreviousHeader);
+            headerLength = PreviousHeader.Length;
+            migrateMadmateVentCooldown = headerAt >= 0;
+        }
+
+        if (headerAt < 0)
+        {
+            headerAt = source.IndexOf(LegacyHeader);
+            headerLength = LegacyHeader.Length;
+            migrateLegacyValueRules = headerAt >= 0;
+            migrateMadmateVentCooldown = headerAt >= 0;
+        }
+
         if (headerAt < 0)
         {
             logger.Info("ヘッダがありません");
@@ -117,12 +139,15 @@ public static class OptionSerializer
             goto Failed;
         }
         // ヘッダ以前とフッタ以降を削除
-        source = source[(headerAt + Header.Length)..footerAt];
+        source = source[(headerAt + headerLength)..footerAt];
 
         try
         {
             var entries = source.Split('&');
-            LoadModOptionsString(entries[0]);
+            LoadModOptionsString(
+                entries[0],
+                migrateLegacyValueRules,
+                migrateMadmateVentCooldown);
             LoadVanillaOptionsString(entries[1]);
             Logger.SendInGame(Utils.ColorString(Color.green, Translator.GetString("Message.LoadedOptions")));
         }
@@ -140,7 +165,10 @@ public static class OptionSerializer
     /// <see cref="GenerateModOptionsString"/>で生成された形式の文字列を読み込んで現在のプリセットを上書きします
     /// </summary>
     /// <param name="source">オプション情報の文字列</param>
-    public static void LoadModOptionsString(string source)
+    public static void LoadModOptionsString(
+        string source,
+        bool migrateLegacyValueRules = false,
+        bool migrateMadmateVentCooldown = false)
     {
         var modOptions = source.Split('!', StringSplitOptions.RemoveEmptyEntries);
         var parsedModOptions = new Dictionary<int, int>(modOptions.Length);
@@ -159,7 +187,32 @@ public static class OptionSerializer
             {
                 continue;
             }
-            option.SetValue(parsedModOptions.TryGetValue(option.Id, out var value) ? value : 0, false);
+            var loadedValue =
+                parsedModOptions.TryGetValue(
+                    option.Id,
+                    out var value)
+                    ? value
+                    : 0;
+
+            if (
+                migrateLegacyValueRules &&
+                option is FloatOptionItem floatOption &&
+                floatOption.LegacySavedIndexMultiplier > 1)
+            {
+                loadedValue *=
+                    floatOption.LegacySavedIndexMultiplier;
+            }
+
+            // MADMATE_VENT_COOLDOWN_5_TO_1_EXPORT_MIGRATION_V2:
+            // ID91528だけV1/Legacyの旧5秒刻みindexを現行1秒刻みindexへ変換。
+            if (migrateMadmateVentCooldown && option.Id == 91528)
+            {
+                loadedValue *= 5;
+            }
+
+            option.SetValue(
+                loadedValue,
+                false);
         }
         OptionItem.SyncAllOptions();
     }

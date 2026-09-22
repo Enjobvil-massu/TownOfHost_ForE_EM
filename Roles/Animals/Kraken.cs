@@ -74,7 +74,9 @@ namespace TownOfHostForE.Roles.Animals
 
         private static void SetupOptionItem()
         {
-            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 30f, false)
+            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             //視界が見えない時間
             OptionBlindTime = FloatOptionItem.Create(RoleInfo, 11, OptionName.BlindTime, new(2.5f, 60f, 2.5f), 10f, false)

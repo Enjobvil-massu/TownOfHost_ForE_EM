@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using AmongUs.GameOptions;
 using Hazel;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
@@ -13,14 +14,34 @@ namespace TownOfHostForE.Modules
         #region Static
         public readonly static List<GameOptionsSender> AllSenders = new(15) { new NormalGameOptionsSender() };
 
-        public static void SendAllGameOptions()
+        public static void SendAllGameOptions(
+            [CallerMemberName] string origin = "Unknown")
         {
             AllSenders.RemoveAll(s => !s.AmValid());
+            var passId = CriticalStartFlowPacketDiagnostic.BeginGameOptionsPass(
+                origin,
+                AllSenders.Count);
             foreach (var sender in AllSenders)
             {
-                if (sender.IsDirty) sender.SendGameOptions();
+                var target = sender is PlayerGameOptionsSender playerSender
+                    ? $"PlayerId={playerSender.player?.PlayerId.ToString() ?? "NULL"},ClientId={playerSender.player?.GetClientId().ToString() ?? "NULL"},Owner={playerSender.player?.AmOwner.ToString() ?? "NULL"}"
+                    : "BroadcastOrLocal";
+                CriticalStartFlowPacketDiagnostic.MarkGameOptionsSender(
+                    passId,
+                    sender.GetType().Name,
+                    sender.IsDirty,
+                    target);
+                if (sender.IsDirty)
+                {
+                    TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Pass(sender, passId));
+                    try { sender.SendGameOptions(); }
+                    finally { TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Pass(sender, null)); }
+                }
                 sender.IsDirty = false;
             }
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "GAMEOPTIONS_PASS_RETURN",
+                $"Pass={passId} Origin={origin}");
         }
         #endregion
 
@@ -38,10 +59,10 @@ namespace TownOfHostForE.Modules
             writer.Write(opt.Version);
             writer.StartMessage(0);
             writer.Write((byte)currentGameMode);
-            if (opt.TryCast<NormalGameOptionsV10>(out var normalOpt))
-                NormalGameOptionsV10.Serialize(writer, normalOpt);
-            else if (opt.TryCast<HideNSeekGameOptionsV10>(out var hnsOpt))
-                HideNSeekGameOptionsV10.Serialize(writer, hnsOpt);
+            if (opt.TryCast<NormalGameOptionsV11>(out var normalOpt))
+                NormalGameOptionsV11.Serialize(writer, normalOpt);
+            else if (opt.TryCast<HideNSeekGameOptionsV11>(out var hnsOpt))
+                HideNSeekGameOptionsV11.Serialize(writer, hnsOpt);
             else
             {
                 writer.Recycle();
@@ -55,6 +76,7 @@ namespace TownOfHostForE.Modules
             // MessageWriter.ToByteArray
             Buffer.BlockCopy(writer.Buffer.Cast<Array>(), 1, byteArray.Cast<Array>(), 0, writer.Length - 1);
 
+            TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Mode(this, currentGameMode));
             SendOptionsArray(byteArray);
             writer.Recycle();
         }
@@ -89,7 +111,21 @@ namespace TownOfHostForE.Modules
             }
             writer.EndMessage();
 
-            AmongUsClient.Instance.SendOrDisconnect(writer);
+            CriticalStartFlowPacketDiagnostic.MarkGameOptionsRoot(
+                targetClientId,
+                LogicOptionsIndex,
+                optionArray.Length,
+                writer.Length);
+            var sendOrDisconnectReturned = false;
+            try
+            {
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                sendOrDisconnectReturned = true;
+            }
+            finally
+            {
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Options(this, optionArray, LogicOptionsIndex, targetClientId, sendOrDisconnectReturned));
+            }
             writer.Recycle();
         }
         public abstract IGameOptions BuildGameOptions();

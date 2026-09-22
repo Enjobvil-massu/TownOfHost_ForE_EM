@@ -29,35 +29,195 @@ namespace TownOfHostForE
     //[HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.ShowRole))]
     class SetUpRoleTextPatch
     {
-        public static void Postfix(IntroCutscene __instance)
+        // ALL_ROLE_INTRO_DISPLAY_AB_V1
+        // Vanilla: targeted self-name overlay only. Mod clients: local RoleText/RoleBlurbText only.
+        private static readonly System.Collections.Generic.Dictionary<byte, string>
+            VanillaIntroRestoreSelfNamesABV1 = new();
+        private static bool VanillaIntroOverlaySentABV1;
+        private static bool ShowRoleEnteredABV1;
+
+        public static void ResetAllRoleIntroDisplayABV1()
         {
-            if (!GameStates.IsModHost) return;
+            VanillaIntroRestoreSelfNamesABV1.Clear();
+            VanillaIntroOverlaySentABV1 = false;
+            ShowRoleEnteredABV1 = false;
+        }
+
+        private static void ScheduleLocalAllRoleIntroTextABV1(IntroCutscene __instance)
+        {
+            if (__instance == null || PlayerControl.LocalPlayer == null) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
             _ = new LateTask(() =>
             {
-                CustomRoles role = PlayerControl.LocalPlayer.GetCustomRole();
-                if (!role.IsVanilla())
-                {
-                    __instance.YouAreText.color = Utils.GetRoleColor(role);
-                    __instance.RoleText.text = Utils.GetRoleName(role);
-                    __instance.RoleText.color = Utils.GetRoleColor(role);
-                    __instance.RoleBlurbText.color = Utils.GetRoleColor(role);
+                if (__instance == null || PlayerControl.LocalPlayer == null) return;
+                if (!StartFlowReadiness.CanUseIntroRoleState()) return;
 
-                    __instance.RoleBlurbText.text = PlayerControl.LocalPlayer.GetRoleInfo();
-                }
+                CustomRoles role = PlayerControl.LocalPlayer.GetCustomRole();
+
+                __instance.YouAreText.color = Utils.GetRoleColor(role);
+                __instance.RoleText.text = Utils.GetRoleName(role);
+                __instance.RoleText.color = Utils.GetRoleColor(role);
+                __instance.RoleBlurbText.color = Utils.GetRoleColor(role);
+                __instance.RoleBlurbText.text = PlayerControl.LocalPlayer.GetRoleInfo() ?? "";
 
                 foreach (var subRole in PlayerState.GetByPlayerId(PlayerControl.LocalPlayer.PlayerId).SubRoles)
                     __instance.RoleBlurbText.text += "\n" + Utils.ColorString(Utils.GetRoleColor(subRole), GetString($"{subRole}Info"));
                 __instance.RoleText.text += Utils.GetSubRolesText(PlayerControl.LocalPlayer.PlayerId);
 
-            }, 0.01f, "Override Role Text");
+                Logger.Info(
+                    $"ALL_ROLE_INTRO_DISPLAY_AB_V1 LOCAL_APPLY PlayerId={PlayerControl.LocalPlayer.PlayerId} Role={role}",
+                    "AllRoleIntroAB");
+            }, 0.01f, "AllRoleIntroLocalTextABV1");
+        }
 
+        private static void SendVanillaAllRoleIntroOverlayABV1()
+        {
+            if (VanillaIntroOverlaySentABV1) return;
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
+            VanillaIntroOverlaySentABV1 = true;
+
+            foreach (var player in Main.AllPlayerControls)
+            {
+                if (
+                    player == null ||
+                    player.Data == null ||
+                    player.Data.Disconnected ||
+                    player.AmOwner ||
+                    player.IsModClient()
+                )
+                {
+                    continue;
+                }
+
+                string restoreName;
+                if (
+                    Main.LastNotifyNames != null &&
+                    Main.LastNotifyNames.TryGetValue(
+                        (player.PlayerId, player.PlayerId),
+                        out var cachedName
+                    ) &&
+                    !string.IsNullOrEmpty(cachedName) &&
+                    StartFlowReadiness.IsSafeCachedSelfName(player, cachedName)
+                )
+                {
+                    restoreName = cachedName;
+                }
+                else
+                {
+                    restoreName = string.IsNullOrEmpty(player.Data.PlayerName)
+                        ? player.name
+                        : player.Data.PlayerName;
+                }
+
+                VanillaIntroRestoreSelfNamesABV1[player.PlayerId] = restoreName;
+
+                var role = player.GetCustomRole();
+                var roleName = Utils.GetRoleName(role);
+                var roleInfo = player.GetRoleInfo() ?? "";
+                var introOverlay =
+                    $"{Utils.ColorString(Utils.GetRoleColor(role), roleName)}\r\n{roleInfo}";
+
+                player.RpcSetNamePrivate(
+                    introOverlay,
+                    true,
+                    player,
+                    force: true
+                );
+
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "ALL_ROLE_INTRO_VANILLA_SELF_SEND",
+                    CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
+
+                Logger.Info(
+                    $"ALL_ROLE_INTRO_DISPLAY_AB_V1 VANILLA_SEND PlayerId={player.PlayerId} Role={role} Length={introOverlay.Length}",
+                    "AllRoleIntroAB");
+            }
+        }
+
+        public static void ApplyAllRoleIntroDisplayWhenReadyABV1(IntroCutscene __instance)
+        {
+            if (!GameStates.IsModHost) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
+            SendVanillaAllRoleIntroOverlayABV1();
+
+            if (ShowRoleEnteredABV1)
+                ScheduleLocalAllRoleIntroTextABV1(__instance);
+        }
+
+        public static void RestoreVanillaAllRoleIntroOverlayABV1()
+        {
+            if (!AmongUsClient.Instance.AmHost)
+            {
+                VanillaIntroRestoreSelfNamesABV1.Clear();
+                VanillaIntroOverlaySentABV1 = false;
+                ShowRoleEnteredABV1 = false;
+                return;
+            }
+
+            foreach (var entry in VanillaIntroRestoreSelfNamesABV1)
+            {
+                var player = Utils.GetPlayerById(entry.Key);
+                if (player == null || player.Data == null || player.Data.Disconnected)
+                    continue;
+
+                player.RpcSetNamePrivate(
+                    entry.Value,
+                    true,
+                    player,
+                    force: true
+                );
+
+                Logger.Info(
+                    $"ALL_ROLE_INTRO_DISPLAY_AB_V1 RESTORE PlayerId={player.PlayerId} Length={entry.Value.Length}",
+                    "AllRoleIntroAB");
+            }
+
+            VanillaIntroRestoreSelfNamesABV1.Clear();
+            VanillaIntroOverlaySentABV1 = false;
+            ShowRoleEnteredABV1 = false;
+        }
+
+        public static void Postfix(IntroCutscene __instance)
+        {
+            if (!GameStates.IsModHost) return;
+
+            ShowRoleEnteredABV1 = true;
+
+            CriticalStartFlowPacketDiagnostic.Mark("SHOW_ROLE_PATCH_ENTER");
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("SHOW_ROLE_PLAYER_STATE");
+
+            if (!StartFlowReadiness.CanUseIntroRoleState())
+            {
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "SHOW_ROLE_CUSTOM_SYNC_WAITING_FOR_READY");
+                return;
+            }
+
+            ApplyAllRoleIntroDisplayWhenReadyABV1(__instance);
         }
     }
     [HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.CoBegin))]
     class CoBeginPatch
     {
-        public static void Prefix()
+        public static void Prefix(IntroCutscene __instance)
         {
+            SetUpRoleTextPatch.ResetAllRoleIntroDisplayABV1();
+            CriticalStartFlowPacketDiagnostic.Mark("INTRO_COBEGIN_PREFIX_ENTER");
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("INTRO_COBEGIN_ENTRY_PLAYER_STATE");
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "INTRO_COBEGIN_ENTRY_TASK_GLOBAL",
+                CriticalStartFlowPacketDiagnostic.GlobalTaskSnapshot());
+
+            StartFlowReadiness.RequestIntroSync(() => RunCustomIntroSync(__instance));
+        }
+
+        private static void RunCustomIntroSync(IntroCutscene __instance)
+        {
+            CriticalStartFlowPacketDiagnostic.Mark("INTRO_CUSTOM_SYNC_ENTER_READY");
             var logger = Logger.Handler("Info");
             logger.Info("------------名前表示------------");
             foreach (var pc in Main.AllPlayerControls)
@@ -96,9 +256,17 @@ namespace TownOfHostForE
                     logger.Info($"{(o.Parent == null ? o.Name.PadRightV2(40) : $"┗ {o.Name}".PadRightV2(41))}:{o.GetString().RemoveHtmlTags()}");
             logger.Info("-------------その他-------------");
             logger.Info($"プレイヤー数: {Main.AllPlayerControls.Count()}人");
+            CriticalStartFlowPacketDiagnostic.Mark("TASKSTATE_INIT_ALL_CALL");
             Main.AllPlayerControls.Do(x => PlayerState.GetByPlayerId(x.PlayerId).InitTask(x));
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("TASKSTATE_INIT_ALL_RETURN_PLAYER_STATE");
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "RECOMPUTE_TASK_COUNTS_CALL",
+                CriticalStartFlowPacketDiagnostic.GlobalTaskSnapshot());
             GameData.Instance.RecomputeTaskCounts();
             TaskState.InitialTotalTasks = GameData.Instance.TotalTasks;
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "RECOMPUTE_TASK_COUNTS_RETURN",
+                CriticalStartFlowPacketDiagnostic.GlobalTaskSnapshot());
 
             //ペット付与
             PetSettings.SetPetRoleInPet();
@@ -119,9 +287,16 @@ namespace TownOfHostForE
                     };
             }
 
+            TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Pets("GAME_START_RENTAL_AND_OUTFIT_SAVED"));
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("NOTIFY_ROLES_BEFORE_PLAYER_STATE");
+            CriticalStartFlowPacketDiagnostic.Mark("NOTIFY_ROLES_CALL");
             Utils.NotifyRoles();
+            CriticalStartFlowPacketDiagnostic.Mark("NOTIFY_ROLES_RETURNED");
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("NOTIFY_ROLES_AFTER_PLAYER_STATE");
 
             GameStates.InGame = true;
+            SetUpRoleTextPatch.ApplyAllRoleIntroDisplayWhenReadyABV1(__instance);
+            CriticalStartFlowPacketDiagnostic.Mark("INTRO_COBEGIN_PREFIX_RETURN");
         }
     }
     [HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.BeginCrewmate))]
@@ -129,6 +304,9 @@ namespace TownOfHostForE
     {
         public static void Prefix(IntroCutscene __instance, ref Il2CppSystem.Collections.Generic.List<PlayerControl> teamToDisplay)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "SHOW_TEAM_BEGINCREWMATE_PREFIX",
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(PlayerControl.LocalPlayer));
             if (PlayerControl.LocalPlayer.Is(CustomRoleTypes.Neutral) || PlayerControl.LocalPlayer.Is(CustomRoles.StrayWolf) || PlayerControl.LocalPlayer.Is(CustomRoleTypes.Animals))
             {
                 //ぼっち役職
@@ -307,6 +485,9 @@ namespace TownOfHostForE
     {
         public static bool Prefix(IntroCutscene __instance, ref Il2CppSystem.Collections.Generic.List<PlayerControl> yourTeam)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "SHOW_TEAM_BEGINIMPOSTOR_PREFIX",
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(PlayerControl.LocalPlayer));
             if (PlayerControl.LocalPlayer.Is(CustomRoles.Sheriff)
                 ||PlayerControl.LocalPlayer.Is(CustomRoles.Hunter)
                 ||PlayerControl.LocalPlayer.Is(CustomRoles.Metaton)
@@ -336,6 +517,7 @@ namespace TownOfHostForE
     {
         public static void Postfix(IntroCutscene __instance)
         {
+            SetUpRoleTextPatch.RestoreVanillaAllRoleIntroOverlayABV1();
             if (!GameStates.IsInGame) return;
             Options.FirstTurnMeetingInProgress =
                 AmongUsClient.Instance.AmHost &&
@@ -378,6 +560,7 @@ namespace TownOfHostForE
                         if (viewer == null || viewer.AmOwner || viewer.Data == null || viewer.Data.Disconnected)
                             continue;
 
+                        if (!viewer.TryGetClientId(out var clientId)) continue;
                         var hasBarrierCandidate =
                             SelectRolesPatch.ClientReadyBarrierCandidateByViewer.TryGetValue(
                                 viewer.PlayerId,
@@ -388,7 +571,7 @@ namespace TownOfHostForE
                             Hazel.SendOption.Reliable,
                             false);
 
-                        sender.StartMessage(viewer.GetClientId());
+                        sender.StartMessage(clientId);
 
                         var targetCount = 0;
                         var candidateWriteCount = 0;
@@ -402,8 +585,31 @@ namespace TownOfHostForE
                                 hasBarrierCandidate &&
                                 target.PlayerId == barrierCandidateId;
 
+                            // CLIENTREADY_CANDIDATE_INTENDED_ROLE_RESTORE_AB_V9:
+                            // ClientReady barrierで一時未確定にしたcandidateだけは、
+                            // 2秒後にShapeshifterへ固定せず、開始時に記録済みの
+                            // viewer-specific VanillaIntroRoleMapへcanOverride=trueで戻す。
+                            var roleForViewer = RoleTypes.Shapeshifter;
+                            var intendedRoleFound = false;
+                            if (canOverride &&
+                                SelectRolesPatch.TryGetExileDisplayRoleViewPermanent(
+                                    viewer.PlayerId,
+                                    target.PlayerId,
+                                    out var intendedRole))
+                            {
+                                roleForViewer = intendedRole;
+                                intendedRoleFound = true;
+                            }
+
+                            if (canOverride)
+                            {
+                                Logger.Info(
+                                    $"Stage=CANDIDATE_FINALIZE | Viewer={viewer.PlayerId} | Candidate={target.PlayerId} | IntendedRoleFound={intendedRoleFound} | AppliedRole={roleForViewer} | CanOverride=True",
+                                    "CLIENTREADY_CANDIDATE_INTENDED_ROLE_RESTORE_AB_V9");
+                            }
+
                             sender.StartRpc(target.NetId, (byte)RpcCalls.SetRole)
-                                .Write((ushort)RoleTypes.Shapeshifter)
+                                .Write((ushort)roleForViewer)
                                 .Write(canOverride)
                                 .EndRpc();
 

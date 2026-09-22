@@ -162,6 +162,8 @@ namespace TownOfHostForE.Roles.Animals
             {
                 foreach (var Addon in Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x.IsAddOn()))
                 {
+                    // GAMBLER_MASTER_OFF_ASSIGNMENT_AB_V1: 0% is an absolute master OFF
+                    if (Addon == CustomRoles.Gambler && !TownOfHostForE.Roles.AddOns.NotCrew.Gambler.IsAssignmentEnabled) continue;
                     if (Options.AddOnRoleOptions.TryGetValue((CustomRoles.RedPanda, Addon), out var option) && option.GetBool())
                     {
                         pc.RpcSetCustomRole(Addon);

@@ -262,6 +262,15 @@ namespace TownOfHostForE
         }
         public static void RpcMurderPlayer(this CustomRpcSender sender, PlayerControl player, PlayerControl target, int targetClientId = -1)
         {
+            // RENEGADE_R2B_CUSTOM_RPC_MURDER_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
+                    player,
+                    target,
+                    "CustomRpcSender.RpcMurderPlayer"))
+            {
+                return;
+            }
+
             sender.AutoStartRpc(player.NetId, (byte)RpcCalls.MurderPlayer, targetClientId)
                 .WriteNetObject(target)
                 .Write((int)ExtendedPlayerControl.SuccessFlags)
@@ -269,7 +278,8 @@ namespace TownOfHostForE
         }
         public static void RpcSetName(this CustomRpcSender sender, PlayerControl player, string name, PlayerControl seer = null)
         {
-            var targetClientId = seer == null ? -1 : seer.GetClientId();
+            var targetClientId = -1;
+            if (seer != null && !seer.TryGetClientId(out targetClientId)) return;
             if (seer == null)
             {
                 foreach (var seer2 in Main.AllPlayerControls)

@@ -88,7 +88,9 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
     {
         KillRadius = FloatOptionItem.Create(RoleInfo, 10, OptionName.DogSheriffRadius, new(0.5f, 3f, 0.5f), 1f, false)
             .SetValueFormat(OptionFormat.Multiplier);
-        KillCooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(0f, 180f, 2.5f), 30f, false)
+        KillCooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(0f, 180f, 0.5f), 30f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         MisfireKillsTarget = BooleanOptionItem.Create(RoleInfo, 12, OptionName.SheriffMisfireKillsTarget, false, false);
         ShotLimitOpt = IntegerOptionItem.Create(RoleInfo, 13, OptionName.SheriffShotLimit, new(1, 15, 1), 15, false)
@@ -215,8 +217,6 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
     public override void OnTouchPet(PlayerControl player)
     {
         if (!CanUseKillButton()) return;
-        ShotLimit--;
-        Logger.Info($"{Player.GetNameWithRole()} : 残り{ShotLimit}発", "DogSheriff");
 
         Dictionary<float, PlayerControl> KillDic = new();
 
@@ -237,10 +237,29 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
 
         }
 
-        if (KillDic.Count == 0) return;
+        // DOGSHERIFF_VALID_TARGET_SHOT_COMMIT_AB_V1:
+        // 対象なし/射程外では弾数・GO状態を一切変更しない。
+        // Host authority上で有効な最寄りtargetが確定した時だけ1発commitする。
+        if (KillDic.Count == 0)
+        {
+            Logger.Info(
+                $"{Player.GetNameWithRole()} : 有効対象なし / 残り{ShotLimit}発を維持",
+                "DogSheriff");
+            return;
+        }
+
         //距離が一番近い人算出
         var killTargetKeys = KillDic.Keys.OrderBy(x => x).FirstOrDefault();
         var target = KillDic[killTargetKeys];
+
+        ShotLimit--;
+        Logger.Info(
+            $"{Player.GetNameWithRole()} : 有効対象={target.GetRealName()} / 残り{ShotLimit}発",
+            "DogSheriff");
+
+        // Remote MOD ownerにもこの時点で弾数同期。
+        // VanillaはHost authority表示なので同じゲーム結果になる。
+        SendRPC();
 
         if (!CanBeKilledBy(target))
         {
@@ -257,7 +276,6 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
         target.SetRealKiller(Player);
         target.RpcMurderPlayer(target);
         Utils.MarkEveryoneDirtySettings();
-        SendRPC();
         NowState = nowState.ready;
         ResetCooldownDisplayCache();
         Utils.NotifyRoles();

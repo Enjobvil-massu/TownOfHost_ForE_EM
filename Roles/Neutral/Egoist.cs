@@ -51,7 +51,9 @@ public sealed class Egoist : RoleBase, ISidekickable, IKiller, ISchrodingerCatOw
 
     private static void SetupOptionItem()
     {
-        OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 20f, false)
+        OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 20f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         OptionCanCreateMadmate = BooleanOptionItem.Create(RoleInfo, 11, GeneralOption.CanCreateMadmate, false, false);
     }

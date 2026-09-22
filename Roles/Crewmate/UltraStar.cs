@@ -89,6 +89,7 @@ public sealed class UltraStar : RoleBase, IKiller, ISchrodingerCatOwner
                 30f,
                 false,
                 OptionCanKill)
+            .SetUiStepMultiplier(2)
             .SetValueFormat(OptionFormat.Seconds);
 
         OptionCheckKill = BooleanOptionItem.Create(

@@ -632,9 +632,16 @@ public enum CustomRoles
     // HAMBURGER_SHOP_PORT_PERMANENT: 天秤直下へSHRハンバーガー屋を追加
     HamburgerShop,
 
-    _Max,
+    NormalViper = 161,
 
-    // Sub-roll after 500
+    NormalJudge = 162,
+
+    NormalPhantom = 163,
+
+    // RENEGADE_ROLE_REGISTRATION_R1: existing role IDs 0-163 are preserved.
+    Renegade = 164,
+
+    _Max = 165,
     NotAssigned = 500,
     LastImpostor,
     CompreteCrew,

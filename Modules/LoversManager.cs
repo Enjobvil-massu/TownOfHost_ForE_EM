@@ -90,7 +90,7 @@ namespace TownOfHostForE.Modules
 
             RPC.SyncLoversPlayers();
             killer.ResetKillCooldown();
-            Utils.NotifyRoles();
+            Utils.NotifyRoles(NoCache: true);
         }
 
         public static void KillLovers(byte targetId)

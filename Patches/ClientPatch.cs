@@ -128,10 +128,51 @@ namespace TownOfHostForE
     [HarmonyPatch(typeof(InnerNetClient), nameof(InnerNetClient.SendAllStreamedObjects))]
     class InnerNetObjectSerializePatch
     {
-        public static void Prefix(InnerNetClient __instance)
+        public static void Prefix(
+            InnerNetClient __instance,
+            out long __state)
         {
-            if (AmongUsClient.Instance.AmHost)
+            __state = 0;
+
+            // ENDGAME_OUTER_STREAM_SENDER_GUARD_AB_V1:
+            // EndGame transition must not continue the host outer-stream GameOptions/repair hook.
+            if (AmongUsClient.Instance.AmHost && !GameStates.IsEnded)
+            {
                 GameOptionsSender.SendAllGameOptions();
+
+                __state = global::TownOfHostForE.Patches.ISystemType
+                    .ForbiddenSabotageElectricalInfoMaskABV1Retry10FastRepairReassert
+                    .BeginRepairOuterStreamInvocation();
+            }
+        }
+
+        public static void Postfix(
+            InnerNetClient __instance,
+            long __state)
+        {
+            try
+            {
+                global::TownOfHostForE.Patches.ISystemType
+                    .ForbiddenSabotageElectricalInfoMaskABV1Retry10FastRepairReassert
+                    .TryPublishPendingRepairAfterOuterStream(__state);
+            }
+            finally
+            {
+                global::TownOfHostForE.Patches.ISystemType
+                    .ForbiddenSabotageElectricalInfoMaskABV1Retry10FastRepairReassert
+                    .EndRepairOuterStreamInvocation(__state);
+            }
+        }
+
+        public static System.Exception Finalizer(
+            System.Exception __exception,
+            long __state)
+        {
+            global::TownOfHostForE.Patches.ISystemType
+                .ForbiddenSabotageElectricalInfoMaskABV1Retry10FastRepairReassert
+                .EndRepairOuterStreamInvocation(__state);
+
+            return __exception;
         }
     }
     [HarmonyPatch]

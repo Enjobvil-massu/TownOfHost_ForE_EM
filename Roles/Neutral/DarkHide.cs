@@ -59,7 +59,9 @@ namespace TownOfHostForE.Roles.Neutral
 
         private static void SetupOptionItem()
         {
-            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 30f, false)
+            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             OptionHasImpostorVision = BooleanOptionItem.Create(RoleInfo, 11, GeneralOption.ImpostorVision, false, false);
             OptionCanCountNeutralKiller = BooleanOptionItem.Create(RoleInfo, 12, OptionName.DarkHideCanCountNeutralKiller, false, false);
@@ -80,7 +82,8 @@ namespace TownOfHostForE.Roles.Neutral
                 foreach (var pc in Main.AllPlayerControls)
                 {
                     if (pc.Data.Disconnected) continue;
-                    MessageWriter SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, pc.GetClientId());
+                    if (!pc.TryGetClientId(out var clientId)) continue;
+                    MessageWriter SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, clientId);
                     SabotageFixWriter.Write((byte)SystemTypes.Electrical);
                     MessageExtensions.WriteNetObject(SabotageFixWriter, pc);
                     AmongUsClient.Instance.FinishRpcImmediately(SabotageFixWriter);

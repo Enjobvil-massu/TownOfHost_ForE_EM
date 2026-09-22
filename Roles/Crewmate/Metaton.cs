@@ -84,7 +84,9 @@ public sealed class Metaton : RoleBase, IKiller
 
     private static void SetupOptionItem()
     {
-        KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 2.5f), 30f, false)
+        KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 0.5f), 30f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         OptionFillingOfTime = IntegerOptionItem.Create(RoleInfo, 11, OptionName.FillingOfTime, new(0, 10, 1), 2, false)
             .SetValueFormat(OptionFormat.Times);

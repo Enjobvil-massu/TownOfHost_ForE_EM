@@ -45,7 +45,8 @@ public static class CustomSoundsManager
             BGMSettings.PlaySoundSERPC(sound);
             return;
         }
-        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.PlayCustomSound, SendOption.Reliable, pc.GetClientId());
+        if (!pc.TryGetClientId(out var clientId)) return;
+        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(PlayerControl.LocalPlayer.NetId, (byte)CustomRPC.PlayCustomSound, SendOption.Reliable, clientId);
         writer.Write(sound);
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }

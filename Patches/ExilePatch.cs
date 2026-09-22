@@ -1,4 +1,4 @@
-using AmongUs.Data;
+﻿using AmongUs.Data;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
@@ -281,30 +281,18 @@ namespace TownOfHostForE
                     hostDataIsDead: Utils.GetPlayerById(pendingPlayerId)?.Data?.IsDead == true,
                     playerStateIsDead: playerStateIsDead);
             }
-
-            internal static void CompleteWrapUpSynchronous(NetworkedPlayerInfo? exiled)
-            {
-                if (!firstSelfGhostHeld)
-                    return;
-
-                if (!restoreCallObserved ||
-                    !secondSelfGhostSuppressed ||
-                    exiled == null ||
-                    exiled.PlayerId != pendingPlayerId)
-                {
-                    RestoreHeldMetadata(restoreSnapshot: true);
-                    ClearPending();
-                }
-            }
-
-            internal static void TrySendAtomicPacket(NetworkedPlayerInfo? exiled)
+            private static bool TrySendAtomicPacketCore(
+                NetworkedPlayerInfo? exiled,
+                bool preservePendingOnFailure,
+                string stagePrefix)
             {
                 if (!firstSelfGhostHeld || !secondSelfGhostSuppressed)
-                    return;
+                    return false;
 
                 var target = exiled?.Object;
                 var playerStateIsDead = exiled != null &&
                     PlayerState.GetByPlayerId(exiled.PlayerId).IsDead;
+
                 if (!AmongUsClient.Instance.AmHost ||
                     exiled == null ||
                     target == null ||
@@ -325,39 +313,54 @@ namespace TownOfHostForE
                     ledger.IsTie ||
                     ledger.Path != RequiredLedgerPath)
                 {
-                    ClearPending();
-                    return;
+                    LogStage(
+                        stagePrefix + "_PREFLIGHT_NOT_READY",
+                        hostDataIsDead: exiled?.IsDead == true,
+                        playerStateIsDead: playerStateIsDead);
+
+                    if (!preservePendingOnFailure)
+                        ClearPending();
+
+                    return false;
                 }
 
                 CustomRpcSender? sender = null;
+
                 try
                 {
                     LogStage(
-                        "ATOMIC_PACKET_BUILD",
+                        stagePrefix + "_PACKET_BUILD",
                         hostDataIsDead: true,
                         playerStateIsDead: true);
 
-                    sender = CustomRpcSender.Create(Marker, SendOption.Reliable);
+                    sender = CustomRpcSender.Create(
+                        Marker,
+                        SendOption.Reliable);
+
                     sender.StartMessage(pendingClientId);
 
                     sender.stream.StartMessage(1);
                     sender.stream.WritePacked(exiled.NetId);
                     exiled.Serialize(sender.stream, true);
                     sender.stream.EndMessage();
+
                     LogStage(
-                        "ATOMIC_DATA_WRITTEN",
+                        stagePrefix + "_DATA_WRITTEN",
                         hostDataIsDead: true,
                         playerStateIsDead: true,
                         packetBytes: sender.stream.Length,
                         submessageCount: 1,
                         dataSubmessageIndex: 0);
 
-                    sender.StartRpc(target.NetId, RpcCalls.SetRole)
+                    sender.StartRpc(
+                            target.NetId,
+                            RpcCalls.SetRole)
                         .Write((ushort)pendingRole)
                         .Write(false)
                         .EndRpc();
+
                     LogStage(
-                        "ATOMIC_GHOST_WRITTEN",
+                        stagePrefix + "_GHOST_WRITTEN",
                         hostDataIsDead: true,
                         playerStateIsDead: true,
                         packetBytes: sender.stream.Length,
@@ -366,35 +369,87 @@ namespace TownOfHostForE
                         ghostSubmessageIndex: 1);
 
                     sender.EndMessage();
-                    var packetBytes = sender.stream.Length;
+
+                    var packetBytes =
+                        sender.stream.Length;
+
                     if (packetBytes > MaxAtomicPacketBytes)
                     {
                         Logger.Warn(
                             $"Atomic packet canceled by size gate | PacketBytes={packetBytes} | Max={MaxAtomicPacketBytes}",
                             Marker);
+
                         sender.stream.Recycle();
-                        ClearPending();
-                        return;
+
+                        if (!preservePendingOnFailure)
+                            ClearPending();
+
+                        return false;
                     }
 
                     sender.SendMessage();
+
                     LogStage(
-                        "ATOMIC_PACKET_SENT",
+                        stagePrefix + "_PACKET_SENT",
                         hostDataIsDead: true,
                         playerStateIsDead: true,
                         packetBytes: packetBytes,
                         submessageCount: 2,
                         dataSubmessageIndex: 0,
                         ghostSubmessageIndex: 1);
+
                     ClearPending();
+                    return true;
                 }
                 catch (Exception ex)
                 {
-                    Logger.Exception(ex, Marker);
+                    Logger.Exception(
+                        ex,
+                        Marker);
+
                     if (sender?.CurrentState is not CustomRpcSender.State.Finished)
                         sender?.stream.Recycle();
-                    ClearPending();
+
+                    if (!preservePendingOnFailure)
+                        ClearPending();
+
+                    return false;
                 }
+            }
+
+            // SYNC_SELF_GHOST_FAIL_OPEN_AB_V1:
+            // Remote Vanilla actual exile self only.
+            // Successful synchronous Data->Ghost owns the self transition.
+            // Any failure returns false without suppressing the existing V27 path.
+            internal static bool CompleteWrapUpSynchronous(
+                NetworkedPlayerInfo? exiled)
+            {
+                if (!firstSelfGhostHeld)
+                    return false;
+
+                if (!restoreCallObserved ||
+                    !secondSelfGhostSuppressed ||
+                    exiled == null ||
+                    exiled.PlayerId != pendingPlayerId)
+                {
+                    RestoreHeldMetadata(
+                        restoreSnapshot: true);
+                    ClearPending();
+                    return false;
+                }
+
+                return TrySendAtomicPacketCore(
+                    exiled,
+                    preservePendingOnFailure: true,
+                    stagePrefix: "SYNC_ATOMIC");
+            }
+            internal static void TrySendAtomicPacket(
+                NetworkedPlayerInfo? exiled)
+            {
+                _ = TrySendAtomicPacketCore(
+                    exiled,
+                    preservePendingOnFailure: false,
+                    stagePrefix: "ATOMIC");
             }
         }
 
@@ -416,6 +471,10 @@ namespace TownOfHostForE
                 AccessTools.Field(typeof(AntiBlackout), "ExileDisplaySafeTargetIdsPermanent");
             private static readonly System.Reflection.FieldInfo? SafetyAppliedField =
                 AccessTools.Field(typeof(AntiBlackout), "ExileDisplaySafetyAppliedPermanent");
+            // HOST_EXILE_PRE_VOTING_DUMMY_AB_V4:
+            // real VotingComplete送信前のPrepared段階を判定するためPendingも参照する。
+            private static readonly System.Reflection.FieldInfo? SafetyPendingField =
+                AccessTools.Field(typeof(AntiBlackout), "ExileDisplaySafetyPendingPermanent");
             private static readonly System.Reflection.FieldInfo? SafetyDummyIdField =
                 AccessTools.Field(typeof(AntiBlackout), "ExileDisplayDummyImpostorIdPermanent");
 
@@ -497,6 +556,10 @@ namespace TownOfHostForE
                 return SafetyAppliedField?.GetValue(null) is bool applied && applied;
             }
 
+            private static bool IsSafetyPending()
+            {
+                return SafetyPendingField?.GetValue(null) is bool pending && pending;
+            }
             private static byte GetSafetyDummyId()
             {
                 return SafetyDummyIdField?.GetValue(null) is byte dummyId
@@ -740,8 +803,761 @@ namespace TownOfHostForE
                     return false;
                 }
             }
+            // HOST_EXILE_PRE_VOTING_DUMMY_AB_V4:
+            // MODホストが、そのVanilla viewerから見た最後の生存Impostorである場合だけ、
+            // real VotingCompleteと同じtargeted GameDataToの先頭に
+            // 既存Safety Dummy=Impostorを積むための候補を返す。
+            // これにより「最後のImpostor追放」をVanillaが先に確定する時間窓を閉じる。
+            internal static bool TryGetHostExilePreVotingSafetyDummyAbV4(
+                PlayerControl exiled,
+                PlayerControl viewer,
+                out PlayerControl? dummy)
+            {
+                const string preVotingMarker = "HOST_EXILE_PRE_VOTING_DUMMY_AB_V4";
+                dummy = null;
+
+                if (false /* HOST_EXILE_PRE_VOTING_DUMMY_LOCAL_TEST_GATE_AB_V10 */ ||
+                    !GameStates.IsInGame ||
+                    !AmongUsClient.Instance.AmHost ||
+                    !AntiBlackout.OverrideExiledPlayer ||
+                    !IsSafetyPending() ||
+                    IsSafetyApplied() ||
+                    exiled == null ||
+                    exiled.Data == null ||
+                    exiled.Data.Disconnected ||
+                    !exiled.AmOwner ||
+                    viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient() ||
+                    !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                    ledger.Path != RequiredLedgerPath ||
+                    ledger.IsTie ||
+                    ledger.RealVotingCompleteDelivered ||
+                    ledger.ActualExiledPlayerId != exiled.PlayerId ||
+                    ledger.TargetClientId != exiled.GetClientId())
+                {
+                    return false;
+                }
+
+                var connected = new List<PlayerControl>();
+                foreach (var player in Main.AllPlayerControls)
+                {
+                    if (player?.Data == null || player.Data.Disconnected)
+                        continue;
+
+                    connected.Add(player);
+                }
+
+                connected.Sort((left, right) => left.PlayerId.CompareTo(right.PlayerId));
+                if (connected.Count < 4 || connected.Count > 15)
+                    return false;
+
+                var safeTargetIds = GetSafeTargetIds();
+                var restoreSnapshot = GetRestoreSnapshot();
+                var safetyDummyId = GetSafetyDummyId();
+
+                if (safeTargetIds == null ||
+                    restoreSnapshot == null ||
+                    safetyDummyId == byte.MaxValue ||
+                    safeTargetIds.Count != connected.Count)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=SAFETY_STATE_INCOMPLETE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | Connected={connected.Count} | SafeTargets={safeTargetIds?.Count ?? -1} | RestoreSnapshot={restoreSnapshot?.Count ?? -1} | SafetyDummy={safetyDummyId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                var remainingAliveImpostorCount = 0;
+                var remainingAliveNonImpostorCount = 0;
+
+                foreach (var remainingTarget in connected)
+                {
+                    if (remainingTarget.Data == null ||
+                        remainingTarget.Data.Disconnected ||
+                        remainingTarget.PlayerId == exiled.PlayerId ||
+                        PlayerState.GetByPlayerId(remainingTarget.PlayerId).IsDead)
+                    {
+                        continue;
+                    }
+
+                    if (!restoreSnapshot.TryGetValue(
+                            (viewer.PlayerId, remainingTarget.PlayerId),
+                            out var remainingRole))
+                    {
+                        Logger.Info(
+                            $"Stage=PRE_VOTING_ABORT | Reason=ROLEVIEW_INCOMPLETE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | TargetId={remainingTarget.PlayerId} | ExiledId={exiled.PlayerId}",
+                            preVotingMarker);
+                        return false;
+                    }
+
+                    var remainingRoleName = remainingRole.ToString();
+                    var remainingIsImpostor =
+                        remainingRole == RoleTypes.Impostor ||
+                        remainingRole == RoleTypes.Shapeshifter ||
+                        remainingRoleName == "Phantom" ||
+                        remainingRoleName == "Viper";
+
+                    if (remainingIsImpostor)
+                        remainingAliveImpostorCount++;
+                    else
+                        remainingAliveNonImpostorCount++;
+                }
+
+                if (remainingAliveImpostorCount > 0)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_NOT_REQUIRED | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors={remainingAliveImpostorCount} | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                if (remainingAliveNonImpostorCount <= 2)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=PARITY_RISK | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors=0 | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                var candidate = Utils.GetPlayerById(safetyDummyId);
+                if (candidate?.Data == null ||
+                    candidate.Data.Disconnected ||
+                    candidate.PlayerId == exiled.PlayerId ||
+                    candidate.PlayerId == viewer.PlayerId ||
+                    !candidate.IsAlive())
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=SAFETY_DUMMY_INELIGIBLE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | SafetyDummy={safetyDummyId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                if (!restoreSnapshot.TryGetValue(
+                        (viewer.PlayerId, candidate.PlayerId),
+                        out var candidateActualRole))
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=DUMMY_RESTORE_MISSING | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | SafetyDummy={candidate.PlayerId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                dummy = candidate;
+
+                Logger.Info(
+                    $"Stage=PRE_VOTING_DUMMY_SELECTED | MeetingGeneration={ledger.MeetingGeneration} | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | DummyId={candidate.PlayerId} | DummyActualRole={candidateActualRole} | ExiledId={exiled.PlayerId}",
+                    preVotingMarker);
+
+                return true;
+            }
+
+            // REMOTE_MOD_EXILE_PRE_VOTING_DUMMY_AB_V5:
+            // Remote MOD実追放でも、remote Vanilla viewer視点で最後のImpostorが消える場合、
+            // real VotingCompleteと同じtargeted messageの先頭へSafety Dummy=Impostorを積む。
+            // Host v4は変更せず、このmethodは「非ownerかつMOD target」だけを扱う。
+            internal static bool TryGetRemoteModExilePreVotingSafetyDummyAbV5(
+                PlayerControl exiled,
+                PlayerControl viewer,
+                out PlayerControl? dummy)
+            {
+                const string preVotingMarker = "REMOTE_MOD_EXILE_PRE_VOTING_DUMMY_AB_V5";
+                dummy = null;
+
+                if (!GameStates.IsOnlineGame ||
+                    !GameStates.IsInGame ||
+                    !AmongUsClient.Instance.AmHost ||
+                    !AntiBlackout.OverrideExiledPlayer ||
+                    !IsSafetyPending() ||
+                    IsSafetyApplied() ||
+                    exiled == null ||
+                    exiled.Data == null ||
+                    exiled.Data.Disconnected ||
+                    exiled.AmOwner ||
+                    !exiled.IsModClient() ||
+                    viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient() ||
+                    !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                    ledger.Path != RequiredLedgerPath ||
+                    ledger.IsTie ||
+                    // Remote MOD本人へ先にVotingComplete済みでも、
+                    // 後続Vanilla viewer送信前の保護は必要なのでDeliveredは除外条件にしない。
+                    ledger.ActualExiledPlayerId != exiled.PlayerId ||
+                    ledger.TargetClientId != exiled.GetClientId())
+                {
+                    return false;
+                }
+
+                var connected = new List<PlayerControl>();
+                foreach (var player in Main.AllPlayerControls)
+                {
+                    if (player?.Data == null || player.Data.Disconnected)
+                        continue;
+
+                    connected.Add(player);
+                }
+
+                connected.Sort((left, right) => left.PlayerId.CompareTo(right.PlayerId));
+                if (connected.Count < 4 || connected.Count > 15)
+                    return false;
+
+                var safeTargetIds = GetSafeTargetIds();
+                var restoreSnapshot = GetRestoreSnapshot();
+                var safetyDummyId = GetSafetyDummyId();
+
+                if (safeTargetIds == null ||
+                    restoreSnapshot == null ||
+                    safetyDummyId == byte.MaxValue ||
+                    safeTargetIds.Count != connected.Count)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=SAFETY_STATE_INCOMPLETE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | Connected={connected.Count} | SafeTargets={safeTargetIds?.Count ?? -1} | RestoreSnapshot={restoreSnapshot?.Count ?? -1} | SafetyDummy={safetyDummyId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                var remainingAliveImpostorCount = 0;
+                var remainingAliveNonImpostorCount = 0;
+
+                foreach (var remainingTarget in connected)
+                {
+                    if (remainingTarget.Data == null ||
+                        remainingTarget.Data.Disconnected ||
+                        remainingTarget.PlayerId == exiled.PlayerId ||
+                        PlayerState.GetByPlayerId(remainingTarget.PlayerId).IsDead)
+                    {
+                        continue;
+                    }
+
+                    if (!restoreSnapshot.TryGetValue(
+                            (viewer.PlayerId, remainingTarget.PlayerId),
+                            out var remainingRole))
+                    {
+                        Logger.Info(
+                            $"Stage=PRE_VOTING_ABORT | Reason=ROLEVIEW_INCOMPLETE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | TargetId={remainingTarget.PlayerId} | ExiledId={exiled.PlayerId}",
+                            preVotingMarker);
+                        return false;
+                    }
+
+                    var remainingRoleName = remainingRole.ToString();
+                    var remainingIsImpostor =
+                        remainingRole == RoleTypes.Impostor ||
+                        remainingRole == RoleTypes.Shapeshifter ||
+                        remainingRoleName == "Phantom" ||
+                        remainingRoleName == "Viper";
+
+                    if (remainingIsImpostor)
+                        remainingAliveImpostorCount++;
+                    else
+                        remainingAliveNonImpostorCount++;
+                }
+
+                if (remainingAliveImpostorCount > 0)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_NOT_REQUIRED | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors={remainingAliveImpostorCount} | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                if (remainingAliveNonImpostorCount <= 2)
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=PARITY_RISK | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors=0 | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                var candidate = Utils.GetPlayerById(safetyDummyId);
+                if (candidate?.Data == null ||
+                    candidate.Data.Disconnected ||
+                    candidate.PlayerId == exiled.PlayerId ||
+                    candidate.PlayerId == viewer.PlayerId ||
+                    !candidate.IsAlive())
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=SAFETY_DUMMY_INELIGIBLE | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | SafetyDummy={safetyDummyId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                if (!restoreSnapshot.TryGetValue(
+                        (viewer.PlayerId, candidate.PlayerId),
+                        out var candidateActualRole))
+                {
+                    Logger.Info(
+                        $"Stage=PRE_VOTING_ABORT | Reason=DUMMY_RESTORE_MISSING | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | SafetyDummy={candidate.PlayerId} | ExiledId={exiled.PlayerId}",
+                        preVotingMarker);
+                    return false;
+                }
+
+                dummy = candidate;
+
+                Logger.Info(
+                    $"Stage=PRE_VOTING_DUMMY_SELECTED | MeetingGeneration={ledger.MeetingGeneration} | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | DummyId={candidate.PlayerId} | DummyActualRole={candidateActualRole} | ExiledId={exiled.PlayerId}",
+                    preVotingMarker);
+
+                return true;
+            }
+            // MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6:
+            // Hostまたはremote MOD導入者の実追放で、v4/v5 pre-voting safetyが
+            // 実際に必要だったremote Vanilla viewerだけを記録する。
+            // WrapUp finalizerでは、既存actual GameData / lease restore後に
+            // exiled dead GameData -> CrewmateGhostを同一targeted messageで再提示する。
+            private sealed class ModExileAtomicPoststatePlanAbV6
+            {
+                internal uint MeetingGeneration;
+                internal byte ExiledId;
+                internal byte ViewerId;
+                internal int ViewerClientId;
+                internal bool ExiledWasHost;
+                internal bool ExiledWasRemoteMod;
+            }
+
+            private static readonly Dictionary<byte, ModExileAtomicPoststatePlanAbV6>
+                ModExileAtomicPoststatePlansAbV6 = new();
+
+            private const int ModExileAtomicPoststateMaxPacketBytesAbV6 = 1000;
+
+            private static void RecordModExileAtomicPoststatePlanAbV6(
+                PlayerControl exiled,
+                PlayerControl viewer)
+            {
+                if (exiled == null ||
+                    exiled.Data == null ||
+                    exiled.Data.Disconnected ||
+                    viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient() ||
+                    !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                    ledger.Path != RequiredLedgerPath ||
+                    ledger.IsTie ||
+                    ledger.ActualExiledPlayerId != exiled.PlayerId)
+                {
+                    return;
+                }
+
+                var exiledWasHost = exiled.AmOwner;
+                var exiledWasRemoteMod = !exiled.AmOwner && exiled.IsModClient();
+                if (!exiledWasHost && !exiledWasRemoteMod)
+                    return;
+
+                if (!viewer.TryGetClientId(out var viewerClientId)) return;
+                var staleViewerIds = new List<byte>();
+                foreach (var entry in ModExileAtomicPoststatePlansAbV6)
+                {
+                    if (entry.Value.MeetingGeneration != ledger.MeetingGeneration)
+                        staleViewerIds.Add(entry.Key);
+                }
+
+                foreach (var staleViewerId in staleViewerIds)
+                    ModExileAtomicPoststatePlansAbV6.Remove(staleViewerId);
+
+                ModExileAtomicPoststatePlansAbV6[viewer.PlayerId] =
+                    new ModExileAtomicPoststatePlanAbV6
+                    {
+                        MeetingGeneration = ledger.MeetingGeneration,
+                        ExiledId = exiled.PlayerId,
+                        ViewerId = viewer.PlayerId,
+                        ViewerClientId = viewerClientId,
+                        ExiledWasHost = exiledWasHost,
+                        ExiledWasRemoteMod = exiledWasRemoteMod
+                    };
+
+                Logger.Info(
+                    $"Stage=PLAN_RECORDED | MeetingGeneration={ledger.MeetingGeneration} | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | ExiledId={exiled.PlayerId} | ExiledWasHost={exiledWasHost} | ExiledWasRemoteMod={exiledWasRemoteMod}",
+                    "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+            }
+
+            internal static void TrySendModExileAtomicPoststateAbV6(NetworkedPlayerInfo? exiled)
+            {
+                if (ModExileAtomicPoststatePlansAbV6.Count == 0)
+                    return;
+
+                try
+                {
+                    if (!AmongUsClient.Instance.AmHost ||
+                        exiled == null ||
+                        exiled.Object == null ||
+                        !exiled.IsDead ||
+                        !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                        ledger.Path != RequiredLedgerPath ||
+                        ledger.IsTie ||
+                        ledger.ActualExiledPlayerId != exiled.PlayerId)
+                    {
+                        Logger.Info(
+                            $"Stage=ATOMIC_POSTSTATE_ABORT | Reason=FINAL_STATE_MISMATCH | Plans={ModExileAtomicPoststatePlansAbV6.Count} | ExiledId={(exiled == null ? byte.MaxValue : exiled.PlayerId)}",
+                            "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+                        return;
+                    }
+
+                    var activePlans =
+                        new List<ModExileAtomicPoststatePlanAbV6>(
+                            ModExileAtomicPoststatePlansAbV6.Values);
+                    activePlans.Sort(
+                        (left, right) => left.ViewerId.CompareTo(right.ViewerId));
+
+                    foreach (var plan in activePlans)
+                    {
+                        if (plan.MeetingGeneration != ledger.MeetingGeneration ||
+                            plan.ExiledId != exiled.PlayerId ||
+                            (!plan.ExiledWasHost && !plan.ExiledWasRemoteMod))
+                        {
+                            continue;
+                        }
+
+                        var viewer = Utils.GetPlayerById(plan.ViewerId);
+                        if (viewer == null ||
+                            viewer.Data == null ||
+                            viewer.Data.Disconnected ||
+                            viewer.AmOwner ||
+                            viewer.IsModClient() ||
+                            viewer.GetClientId() != plan.ViewerClientId)
+                        {
+                            Logger.Info(
+                                $"Stage=ATOMIC_POSTSTATE_ABORT | Reason=VIEWER_INVALID | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId}",
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+                            continue;
+                        }
+
+                        CustomRpcSender? sender = null;
+                        try
+                        {
+                            Logger.Info(
+                                $"Stage=ATOMIC_POSTSTATE_BUILD | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost=CrewmateGhost",
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+
+                            sender = CustomRpcSender.Create(
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6",
+                                SendOption.Reliable);
+                            sender.StartMessage(plan.ViewerClientId);
+
+                            sender.stream.StartMessage(1);
+                            sender.stream.WritePacked(exiled.NetId);
+                            exiled.Serialize(sender.stream, true);
+                            sender.stream.EndMessage();
+
+                            Logger.Info(
+                                $"Stage=ATOMIC_POSTSTATE_DATA_WRITTEN | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | PacketBytes={sender.stream.Length}",
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+
+                            sender.StartRpc(exiled.Object.NetId, RpcCalls.SetRole)
+                                .Write((ushort)RoleTypes.CrewmateGhost)
+                                .Write(false)
+                                .EndRpc();
+
+                            Logger.Info(
+                                $"Stage=ATOMIC_POSTSTATE_GHOST_WRITTEN | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | Ghost=CrewmateGhost | CanOverride=False | PacketBytes={sender.stream.Length}",
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+
+                            sender.EndMessage();
+                            var packetBytes = sender.stream.Length;
+                            if (packetBytes > ModExileAtomicPoststateMaxPacketBytesAbV6)
+                            {
+                                Logger.Warn(
+                                    $"Stage=ATOMIC_POSTSTATE_ABORT | Reason=PACKET_TOO_LARGE | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | PacketBytes={packetBytes} | Max={ModExileAtomicPoststateMaxPacketBytesAbV6}",
+                                    "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+                                sender.stream.Recycle();
+                                continue;
+                            }
+
+                            sender.SendMessage();
+
+                            Logger.Info(
+                                $"Stage=ATOMIC_POSTSTATE_SENT | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost=CrewmateGhost | PacketBytes={packetBytes} | SubmessageCount=2 | DataSubmessageIndex=0 | GhostSubmessageIndex=1",
+                                "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Exception(ex, "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
+                            if (sender?.CurrentState is not CustomRpcSender.State.Finished)
+                                sender?.stream.Recycle();
+                        }
+                    }
+                }
+                finally
+                {
+                    ModExileAtomicPoststatePlansAbV6.Clear();
+                }
+            }
+
+            // MOD_EXILE_PRE_VOTING_DUMMY_AB_V5:
+            // Host v4をそのまま優先し、該当しない場合だけRemote MOD v5を評価する。
+            // A/B v6では、どちらの経路でもpre-voting safetyが必要だったviewerを記録する。
+            internal static bool TryGetModExilePreVotingSafetyDummyAbV5(
+                PlayerControl exiled,
+                PlayerControl viewer,
+                out PlayerControl? dummy)
+            {
+                if (TryGetHostExilePreVotingSafetyDummyAbV4(
+                        exiled,
+                        viewer,
+                        out dummy))
+                {
+                    RecordModExileAtomicPoststatePlanAbV6(exiled, viewer);
+                    return true;
+                }
+
+                if (TryGetRemoteModExilePreVotingSafetyDummyAbV5(
+                        exiled,
+                        viewer,
+                        out dummy))
+                {
+                    RecordModExileAtomicPoststatePlanAbV6(exiled, viewer);
+
+                    // REMOTE_MOD_EXILE_RECORDED_POST_SETISDEAD_REASSERT_AB_V21:
+                    // pre-voting時点で確定したdangerous Vanilla viewer / dummyを
+                    // SetIsDead後まで保持し、CriticalLease生成を待たずに再利用する。
+                    if (dummy != null)
+                    {
+                        RecordRemoteModPostSetIsDeadReassertPlanAbV21(
+                            exiled,
+                            viewer,
+                            dummy);
+                    }
+
+                    return true;
+                }
+
+                dummy = null;
+                return false;
+            }
+            // HOST_EXILE_REMOTE_VANILLA_CRITICAL_LEASE_AB_V3:
+            // MODホスト自身が4-15人real-targeted実追放されたときだけ、
+            // 既存ExileDisplay安全化で既にImpostorになっているsafety dummyを
+            // 必要なremote Vanilla viewerだけRestoreで保持する。
+            // 新規SetRoleは送らず、既存V14AのRestore hold / +2s finalizerだけを再利用する。
+            internal static bool TryPrepareHostExileSafetyDummyLeaseAbV3(PlayerControl target)
+            {
+                const string hostMarker = "HOST_EXILE_REMOTE_VANILLA_CRITICAL_LEASE_AB_V3";
+                // MOD_EXILE_REMOTE_VANILLA_PERSISTENT_IMPOSTOR_LEASE_AB_V8: remote認識済みMOD追放でもSafety leaseを取得可能にする。
+
+                // PERSISTENT_LEASE_LOCAL_TEST_GATE_AB_V8L: ローカル再現環境でも同じA/B lease経路を検証する。
+                if (
+                    !GameStates.IsInGame ||
+                    !AmongUsClient.Instance.AmHost ||
+                    !AntiBlackout.OverrideExiledPlayer ||
+                    !IsSafetyApplied() ||
+                    target == null ||
+                    target.Data == null ||
+                    target.Data.Disconnected ||
+                    (!target.AmOwner && !target.IsModClient()) ||
+                    !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                    ledger.Path != RequiredLedgerPath ||
+                    ledger.IsTie ||
+                    (target.AmOwner && ledger.RealVotingCompleteDelivered) ||
+                    ledger.ActualExiledPlayerId != target.PlayerId ||
+                    ledger.TargetClientId != target.GetClientId())
+                {
+                    return false;
+                }
+
+                if (Leases.Count != 0)
+                {
+                    Logger.Info(
+                        $"Stage=HOST_LEASE_ABORT | Reason=EXISTING_LEASES | Count={Leases.Count} | ExiledId={target.PlayerId}",
+                        hostMarker);
+                    return false;
+                }
+
+                var connected = new List<PlayerControl>();
+                foreach (var player in Main.AllPlayerControls)
+                {
+                    if (player?.Data == null || player.Data.Disconnected)
+                        continue;
+
+                    connected.Add(player);
+                }
+
+                connected.Sort((left, right) => left.PlayerId.CompareTo(right.PlayerId));
+                if (connected.Count < 4 || connected.Count > 15)
+                    return false;
+
+                var safeTargetIds = GetSafeTargetIds();
+                var restoreSnapshot = GetRestoreSnapshot();
+                var safetyDummyId = GetSafetyDummyId();
+
+                if (safeTargetIds == null ||
+                    restoreSnapshot == null ||
+                    safetyDummyId == byte.MaxValue ||
+                    safeTargetIds.Count != connected.Count)
+                {
+                    Logger.Info(
+                        $"Stage=HOST_LEASE_ABORT | Reason=SAFETY_STATE_INCOMPLETE | Connected={connected.Count} | SafeTargets={safeTargetIds?.Count ?? -1} | RestoreSnapshot={restoreSnapshot?.Count ?? -1} | SafetyDummy={safetyDummyId}",
+                        hostMarker);
+                    return false;
+                }
+
+                var connectedIds = new HashSet<byte>();
+                foreach (var player in connected)
+                    connectedIds.Add(player.PlayerId);
+
+                if (connectedIds.Count != connected.Count)
+                    return false;
+
+                foreach (var targetId in safeTargetIds)
+                {
+                    if (!connectedIds.Remove(targetId))
+                        return false;
+                }
+
+                if (connectedIds.Count != 0)
+                    return false;
+
+                var remoteViewerCount = 0;
+                foreach (var viewer in connected)
+                {
+                    if (viewer.AmOwner)
+                        continue;
+
+                    remoteViewerCount++;
+                    foreach (var restoreTarget in connected)
+                    {
+                        if (!restoreSnapshot.ContainsKey(
+                                (viewer.PlayerId, restoreTarget.PlayerId)))
+                        {
+                            Logger.Info(
+                                $"Stage=HOST_LEASE_ABORT | Reason=RESTORE_SNAPSHOT_INCOMPLETE | ViewerId={viewer.PlayerId} | TargetId={restoreTarget.PlayerId}",
+                                hostMarker);
+                            return false;
+                        }
+                    }
+                }
+
+                if (remoteViewerCount <= 0 ||
+                    restoreSnapshot.Count != remoteViewerCount * connected.Count)
+                {
+                    Logger.Info(
+                        $"Stage=HOST_LEASE_ABORT | Reason=RESTORE_SNAPSHOT_COUNT | RemoteViewers={remoteViewerCount} | Connected={connected.Count} | RestoreSnapshot={restoreSnapshot.Count}",
+                        hostMarker);
+                    return false;
+                }
+
+                var safetyDummy = Utils.GetPlayerById(safetyDummyId);
+                if (safetyDummy?.Data == null ||
+                    safetyDummy.Data.Disconnected ||
+                    safetyDummy.PlayerId == target.PlayerId ||
+                    !safetyDummy.IsAlive())
+                {
+                    Logger.Info(
+                        $"Stage=HOST_LEASE_ABORT | Reason=SAFETY_DUMMY_INELIGIBLE | SafetyDummy={safetyDummyId} | ExiledId={target.PlayerId}",
+                        hostMarker);
+                    return false;
+                }
+
+                var planned = new List<CriticalLease>();
+
+                foreach (var viewer in connected)
+                {
+                    if (viewer.AmOwner || viewer.IsModClient())
+                        continue;
+
+                    var remainingAliveImpostorCount = 0;
+                    var remainingAliveNonImpostorCount = 0;
+
+                    foreach (var remainingTarget in connected)
+                    {
+                        if (remainingTarget.Data == null ||
+                            remainingTarget.Data.Disconnected ||
+                            remainingTarget.PlayerId == ledger.ActualExiledPlayerId ||
+                            PlayerState.GetByPlayerId(remainingTarget.PlayerId).IsDead)
+                        {
+                            continue;
+                        }
+
+                        if (!restoreSnapshot.TryGetValue(
+                                (viewer.PlayerId, remainingTarget.PlayerId),
+                                out var remainingRole))
+                        {
+                            Logger.Info(
+                                $"Stage=HOST_LEASE_ABORT | Reason=ROLEVIEW_INCOMPLETE | ViewerId={viewer.PlayerId} | TargetId={remainingTarget.PlayerId} | ExiledId={ledger.ActualExiledPlayerId}",
+                                hostMarker);
+                            return false;
+                        }
+
+                        var remainingRoleName = remainingRole.ToString();
+                        var remainingIsImpostor =
+                            remainingRole == RoleTypes.Impostor ||
+                            remainingRole == RoleTypes.Shapeshifter ||
+                            remainingRoleName == "Phantom" ||
+                            remainingRoleName == "Viper";
+
+                        if (remainingIsImpostor)
+                            remainingAliveImpostorCount++;
+                        else
+                            remainingAliveNonImpostorCount++;
+                    }
+
+                    if (remainingAliveImpostorCount > 0)
+                    {
+                        Logger.Info(
+                            $"Stage=HOST_LEASE_NOT_REQUIRED | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors={remainingAliveImpostorCount} | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={ledger.ActualExiledPlayerId}",
+                            hostMarker);
+                        continue;
+                    }
+
+                    if (remainingAliveNonImpostorCount <= 2)
+                    {
+                        Logger.Info(
+                            $"Stage=HOST_LEASE_ABORT | Reason=PARITY_RISK | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | RemainingAliveImpostors=0 | RemainingAliveNonImpostors={remainingAliveNonImpostorCount} | ExiledId={ledger.ActualExiledPlayerId}",
+                            hostMarker);
+                        return false;
+                    }
+
+                    if (safetyDummy.PlayerId == viewer.PlayerId)
+                    {
+                        Logger.Info(
+                            $"Stage=HOST_LEASE_ABORT | Reason=SAFETY_DUMMY_IS_VIEWER | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | SafetyDummy={safetyDummy.PlayerId} | ExiledId={ledger.ActualExiledPlayerId}",
+                            hostMarker);
+                        return false;
+                    }
+
+                    if (!restoreSnapshot.TryGetValue(
+                            (viewer.PlayerId, safetyDummy.PlayerId),
+                            out var dummyActualRole))
+                    {
+                        Logger.Info(
+                            $"Stage=HOST_LEASE_ABORT | Reason=DUMMY_RESTORE_MISSING | ViewerId={viewer.PlayerId} | SafetyDummy={safetyDummy.PlayerId} | ExiledId={ledger.ActualExiledPlayerId}",
+                            hostMarker);
+                        return false;
+                    }
+
+                    if (!viewer.TryGetClientId(out var viewerClientId)) return false;
+                    planned.Add(new CriticalLease(
+                        ledger.MeetingGeneration,
+                        viewer.PlayerId,
+                        viewerClientId,
+                        safetyDummy.PlayerId,
+                        dummyActualRole,
+                        ledger.ActualExiledPlayerId));
+                }
+
+                if (planned.Count == 0)
+                    return false;
+
+                foreach (var lease in planned)
+                {
+                    Leases[lease.ViewerId] = lease;
+                    Logger.Info(
+                        $"Stage=HOST_SAFETY_DUMMY_LEASE_SELECTED | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | DummyActualRole={lease.DummyActualRole} | ExiledId={lease.ExiledId} | NewSetRole=False",
+                        hostMarker);
+                }
+
+                return true;
+            }
             internal static void TryApplyAfterSetIsDeadData()
             {
+                // REMOTE_MOD_EXILE_RECORDED_POST_SETISDEAD_REASSERT_AB_V21:
+                // AntiBlackout.SetIsDead/SendGameData直後に、pre-votingで記録済みの
+                // remote MOD exile safety planを先に再assertする。
+                TrySendRecordedRemoteModPostSetIsDeadReassertAbV21();
+
                 if (!TryGetExactMixedMappingState(
                         out var ledger,
                         out var connected,
@@ -859,10 +1675,11 @@ namespace TownOfHostForE
                         $"Stage=CLIENTREADY_CANDIDATE_SELECTED | ViewerId={viewer.PlayerId} | ViewerClientId={viewer.GetClientId()} | CandidateId={dummy.PlayerId} | CandidateActualRole={actualRole} | ExiledId={ledger.ActualExiledPlayerId}",
                         Marker);
 
+                    if (!viewer.TryGetClientId(out var viewerClientId)) return;
                     planned.Add(new CriticalLease(
                         ledger.MeetingGeneration,
                         viewer.PlayerId,
-                        viewer.GetClientId(),
+                        viewerClientId,
                         dummy.PlayerId,
                         actualRole,
                         ledger.ActualExiledPlayerId));
@@ -896,6 +1713,15 @@ namespace TownOfHostForE
                     {
                         packet.Sender.SendMessage();
                         LogStage("POST_SETISDEAD_DUMMY_APPLIED", lease);
+
+                        // REMOTE_MOD_EXILE_POST_SETISDEAD_FULL_SAFE_REASSERT_AB_V20:
+                        // v19のpre-Voting full-safe NPIは、その後のAntiBlackout.SetIsDead
+                        // GameDataで上書きされ得る。既存V14Aが危険Viewerを選別し、
+                        // Dummy=ImpostorをSetIsDead直後に再適用した直後だけ、
+                        // remote MOD実追放の生存Vanilla Viewerへfull-safe NPIを再assertする。
+                        // Host canonical Role/RoleWhenAlive/RoleBehaviourは変更しない。
+                        TrySendRemoteModPostSetIsDeadFullSafeReassertAbV20(
+                            lease);
                     }
                     catch (Exception ex)
                     {
@@ -903,6 +1729,436 @@ namespace TownOfHostForE
                         if (packet.Sender.CurrentState is not CustomRpcSender.State.Finished)
                             packet.Sender.stream.Recycle();
                     }
+                }
+            }
+
+            // REMOTE_MOD_EXILE_POST_SETISDEAD_FULL_SAFE_REASSERT_AB_V20:
+            // remote MOD実追放で、既存V14Aが「このVanilla viewerは生存Impostor view=0」
+            // と判定した場合だけ、SetIsDeadの全Player GameData送信後にv19と同じ
+            // wire-only Role/RoleWhenAlive full-safe NPIをtargeted再送する。
+            // 既存POST_SETISDEAD_DUMMY_APPLIEDが先にDummy=Impostor SetRoleを送るため、
+            // ここではそのRoleBehaviour viewを壊さず、NPI側のRole/RoleWhenAliveを揃える。
+            // REMOTE_MOD_EXILE_RECORDED_POST_SETISDEAD_REASSERT_AB_V21:
+            // v20 runtimeではSetIsDead直後にCriticalLeaseがまだ存在せず、
+            // v20 packetが1件も送信されなかった。
+            // v21はpre-voting safety判定結果を記録し、その記録をSetIsDead直後に使う。
+            private sealed class RemoteModPostSetIsDeadReassertPlanAbV21
+            {
+                internal readonly uint MeetingGeneration;
+                internal readonly byte ViewerId;
+                internal readonly int ViewerClientId;
+                internal readonly byte DummyId;
+                internal readonly byte ExiledId;
+
+                internal RemoteModPostSetIsDeadReassertPlanAbV21(
+                    uint meetingGeneration,
+                    byte viewerId,
+                    int viewerClientId,
+                    byte dummyId,
+                    byte exiledId)
+                {
+                    MeetingGeneration = meetingGeneration;
+                    ViewerId = viewerId;
+                    ViewerClientId = viewerClientId;
+                    DummyId = dummyId;
+                    ExiledId = exiledId;
+                }
+            }
+
+            private static readonly Dictionary<byte, RemoteModPostSetIsDeadReassertPlanAbV21>
+                RemoteModPostSetIsDeadReassertPlansAbV21 = new();
+
+            private static void RecordRemoteModPostSetIsDeadReassertPlanAbV21(
+                PlayerControl exiled,
+                PlayerControl viewer,
+                PlayerControl dummy)
+            {
+                const string marker =
+                    "REMOTE_MOD_EXILE_RECORDED_POST_SETISDEAD_REASSERT_AB_V21";
+
+                if (exiled == null ||
+                    viewer == null ||
+                    dummy == null ||
+                    exiled.Data == null ||
+                    viewer.Data == null ||
+                    dummy.Data == null ||
+                    exiled.Data.Disconnected ||
+                    viewer.Data.Disconnected ||
+                    dummy.Data.Disconnected ||
+                    exiled.AmOwner ||
+                    !exiled.IsModClient() ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient())
+                {
+                    return;
+                }
+
+                if (!viewer.TryGetClientId(out var viewerClientId)) return;
+                var stale = false;
+                foreach (var existing in RemoteModPostSetIsDeadReassertPlansAbV21.Values)
+                {
+                    if (existing.MeetingGeneration != MeetingVoteManager.H4MeetingGeneration)
+                    {
+                        stale = true;
+                        break;
+                    }
+                }
+
+                if (stale)
+                    RemoteModPostSetIsDeadReassertPlansAbV21.Clear();
+
+                var plan = new RemoteModPostSetIsDeadReassertPlanAbV21(
+                    MeetingVoteManager.H4MeetingGeneration,
+                    viewer.PlayerId,
+                    viewerClientId,
+                    dummy.PlayerId,
+                    exiled.PlayerId);
+
+                RemoteModPostSetIsDeadReassertPlansAbV21[viewer.PlayerId] = plan;
+
+                Logger.Info(
+                    $"Stage=PLAN_RECORDED | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId}",
+                    marker);
+            }
+
+            internal static void TrySendRecordedRemoteModPostSetIsDeadReassertAbV21()
+            {
+                const string marker =
+                    "REMOTE_MOD_EXILE_RECORDED_POST_SETISDEAD_REASSERT_AB_V21";
+
+                if (RemoteModPostSetIsDeadReassertPlansAbV21.Count == 0)
+                    return;
+
+                var plans =
+                    new List<RemoteModPostSetIsDeadReassertPlanAbV21>(
+                        RemoteModPostSetIsDeadReassertPlansAbV21.Values);
+                plans.Sort((left, right) => left.ViewerId.CompareTo(right.ViewerId));
+
+                try
+                {
+                    foreach (var plan in plans)
+                    {
+                        if (plan.MeetingGeneration != MeetingVoteManager.H4MeetingGeneration ||
+                            !GameStates.IsOnlineGame ||
+                            !GameStates.IsInGame ||
+                            !AmongUsClient.Instance.AmHost ||
+                            !AntiBlackout.OverrideExiledPlayer ||
+                            !MeetingVoteManager.H4TryGetActualExileLedger(out var ledger) ||
+                            ledger.Path != RequiredLedgerPath ||
+                            ledger.IsTie ||
+                            ledger.ActualExiledPlayerId != plan.ExiledId)
+                        {
+                            Logger.Warn(
+                                $"Stage=POST_SETISDEAD_ABORT | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | Reason=GLOBAL_GATE",
+                                marker);
+                            continue;
+                        }
+
+                        var viewer = Utils.GetPlayerById(plan.ViewerId);
+                        var dummy = Utils.GetPlayerById(plan.DummyId);
+                        var exiledTarget = Utils.GetPlayerById(plan.ExiledId);
+
+                        if (viewer == null ||
+                            viewer.Data == null ||
+                            viewer.Data.Disconnected ||
+                            viewer.AmOwner ||
+                            viewer.IsModClient() ||
+                            viewer.GetClientId() != plan.ViewerClientId ||
+                            dummy == null ||
+                            dummy.Data == null ||
+                            dummy.Data.Disconnected ||
+                            !dummy.IsAlive() ||
+                            exiledTarget == null ||
+                            exiledTarget.Data == null ||
+                            exiledTarget.Data.Disconnected ||
+                            exiledTarget.AmOwner ||
+                            !exiledTarget.IsModClient())
+                        {
+                            Logger.Warn(
+                                $"Stage=POST_SETISDEAD_ABORT | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | Reason=PLAYER_GATE",
+                                marker);
+                            continue;
+                        }
+
+                        var prepared = new List<CustomRpcSender>();
+                        CustomRpcSender? building = null;
+                        var targetCount = 0;
+                        var patchedUInt16 = 0;
+                        var maxPacketBytes = 0;
+                        var buildOk = true;
+                        var abortReason = "";
+
+                        foreach (var source in GameData.Instance.AllPlayers)
+                        {
+                            if (source == null || source.Disconnected)
+                                continue;
+
+                            building = new CustomRpcSender(
+                                $"RemoteModExile Recorded PostSetIsDead FullSafe AB V21 P{source.PlayerId}",
+                                SendOption.Reliable,
+                                false);
+                            building.StartMessage(plan.ViewerClientId);
+
+                            var wireRole =
+                                source.PlayerId == plan.DummyId
+                                    ? RoleTypes.Impostor
+                                    : RoleTypes.Crewmate;
+
+                            if (!SelectRolesPatch.TryAppendPreVotingFullSafeNetworkedPlayerInfoAbV19(
+                                    building,
+                                    source,
+                                    wireRole,
+                                    out var capturedWrites) ||
+                                capturedWrites != 2)
+                            {
+                                abortReason =
+                                    $"CAPTURE_COUNT PlayerId={source.PlayerId} Count={capturedWrites}";
+                                building.stream.Recycle();
+                                building = null;
+                                buildOk = false;
+                                break;
+                            }
+
+                            building.EndMessage();
+                            var packetBytes = building.stream.Length;
+                            if (packetBytes > 400)
+                            {
+                                abortReason =
+                                    $"PACKET_TOO_LARGE PlayerId={source.PlayerId} Bytes={packetBytes} Max=400";
+                                building.stream.Recycle();
+                                building = null;
+                                buildOk = false;
+                                break;
+                            }
+
+                            maxPacketBytes = Math.Max(maxPacketBytes, packetBytes);
+                            prepared.Add(building);
+                            building = null;
+                            targetCount++;
+                            patchedUInt16 += capturedWrites;
+                        }
+
+                        if (!buildOk || targetCount == 0)
+                        {
+                            foreach (var sender in prepared)
+                            {
+                                if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                                    sender.stream.Recycle();
+                            }
+
+                            Logger.Warn(
+                                $"Stage=POST_SETISDEAD_ABORT | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | Reason={(targetCount == 0 && buildOk ? "NO_TARGETS" : abortReason)}",
+                                marker);
+                            continue;
+                        }
+
+                        Logger.Info(
+                            $"Stage=POST_SETISDEAD_FULL_SAFE_PREPARED | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | Targets={targetCount} | Packets={prepared.Count} | PatchedUInt16={patchedUInt16} | MaxPacketBytes={maxPacketBytes} | RecordedPreVotingPlan=True | AfterSetIsDeadData=True | HostStateMutated=False",
+                            marker);
+
+                        CustomRpcSender? setRoleSender = null;
+                        try
+                        {
+                            setRoleSender = CustomRpcSender.Create(
+                                "RemoteModExile Recorded PostSetIsDead Safe SetRole AB V21",
+                                SendOption.Reliable);
+                            setRoleSender.StartMessage(plan.ViewerClientId);
+                            setRoleSender
+                                .StartRpc(dummy.NetId, RpcCalls.SetRole)
+                                .Write((ushort)RoleTypes.Impostor)
+                                .Write(true)
+                                .EndRpc();
+                            setRoleSender.EndMessage();
+                            setRoleSender.SendMessage();
+
+                            Logger.Info(
+                                $"Stage=POST_SETISDEAD_SAFE_SETROLE_SENT | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | SeparateReliableMessage=True | ArtificialDelayMs=0",
+                                marker);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Exception(ex, marker);
+                            if (setRoleSender?.CurrentState is not CustomRpcSender.State.Finished)
+                                setRoleSender?.stream.Recycle();
+
+                            foreach (var sender in prepared)
+                            {
+                                if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                                    sender.stream.Recycle();
+                            }
+
+                            continue;
+                        }
+
+                        var sent = 0;
+                        foreach (var sender in prepared)
+                        {
+                            sender.SendMessage();
+                            sent++;
+                        }
+
+                        Logger.Info(
+                            $"Stage=POST_SETISDEAD_FULL_SAFE_SENT | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | DummyId={plan.DummyId} | ExiledId={plan.ExiledId} | Targets={targetCount} | Packets={sent} | PatchedUInt16={patchedUInt16} | MaxPacketBytes={maxPacketBytes} | RecordedPreVotingPlan=True | AfterSetIsDeadData=True | BeforeLocalWrapUp=True | HostStateMutated=False",
+                            marker);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Exception(ex, marker);
+                }
+                finally
+                {
+                    RemoteModPostSetIsDeadReassertPlansAbV21.Clear();
+                }
+            }
+
+            private static bool TrySendRemoteModPostSetIsDeadFullSafeReassertAbV20(
+                CriticalLease lease)
+            {
+                const string marker =
+                    "REMOTE_MOD_EXILE_POST_SETISDEAD_FULL_SAFE_REASSERT_AB_V20";
+
+                var viewer = Utils.GetPlayerById(lease.ViewerId);
+                var dummy = Utils.GetPlayerById(lease.DummyId);
+                var exiledTarget = Utils.GetPlayerById(lease.ExiledId);
+
+                if (!GameStates.IsOnlineGame ||
+                    !GameStates.IsInGame ||
+                    !AmongUsClient.Instance.AmHost ||
+                    !AntiBlackout.OverrideExiledPlayer ||
+                    viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    viewer.Data.IsDead ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient() ||
+                    viewer.GetClientId() != lease.ViewerClientId ||
+                    dummy == null ||
+                    dummy.Data == null ||
+                    dummy.Data.Disconnected ||
+                    !dummy.IsAlive() ||
+                    dummy.PlayerId != lease.DummyId ||
+                    exiledTarget == null ||
+                    exiledTarget.Data == null ||
+                    exiledTarget.Data.Disconnected ||
+                    exiledTarget.AmOwner ||
+                    !exiledTarget.IsModClient() ||
+                    exiledTarget.PlayerId != lease.ExiledId)
+                {
+                    return false;
+                }
+
+                var preparedSenders = new List<CustomRpcSender>();
+                CustomRpcSender? buildingSender = null;
+                var preparedTargetCount = 0;
+                var patchedUInt16Count = 0;
+                var maxPacketBytes = 0;
+                var sentPacketCount = 0;
+                var abortReason = "";
+
+                try
+                {
+                    foreach (var source in GameData.Instance.AllPlayers)
+                    {
+                        if (source == null || source.Disconnected)
+                            continue;
+
+                        buildingSender = new CustomRpcSender(
+                            $"RemoteModExile PostSetIsDead FullSafe AB V20 P{source.PlayerId}",
+                            SendOption.Reliable,
+                            false);
+                        buildingSender.StartMessage(lease.ViewerClientId);
+
+                        var wireRole =
+                            source.PlayerId == lease.DummyId
+                                ? RoleTypes.Impostor
+                                : RoleTypes.Crewmate;
+
+                        if (!SelectRolesPatch.TryAppendPreVotingFullSafeNetworkedPlayerInfoAbV19(
+                                buildingSender,
+                                source,
+                                wireRole,
+                                out var capturedWrites) ||
+                            capturedWrites != 2)
+                        {
+                            abortReason =
+                                $"CAPTURE_COUNT PlayerId={source.PlayerId} Count={capturedWrites}";
+                            buildingSender.stream.Recycle();
+                            buildingSender = null;
+
+                            foreach (var prepared in preparedSenders)
+                                prepared.stream.Recycle();
+
+                            Logger.Warn(
+                                $"Stage=POST_SETISDEAD_FULL_SAFE_ABORT | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | Reason={abortReason}",
+                                marker);
+                            return false;
+                        }
+
+                        buildingSender.EndMessage();
+                        var packetBytes = buildingSender.stream.Length;
+                        if (packetBytes > 400)
+                        {
+                            abortReason =
+                                $"PACKET_TOO_LARGE PlayerId={source.PlayerId} Bytes={packetBytes} Max=400";
+                            buildingSender.stream.Recycle();
+                            buildingSender = null;
+
+                            foreach (var prepared in preparedSenders)
+                                prepared.stream.Recycle();
+
+                            Logger.Warn(
+                                $"Stage=POST_SETISDEAD_FULL_SAFE_ABORT | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | Reason={abortReason}",
+                                marker);
+                            return false;
+                        }
+
+                        maxPacketBytes = Math.Max(maxPacketBytes, packetBytes);
+                        preparedSenders.Add(buildingSender);
+                        buildingSender = null;
+                        preparedTargetCount++;
+                        patchedUInt16Count += capturedWrites;
+                    }
+
+                    if (preparedTargetCount == 0)
+                    {
+                        Logger.Warn(
+                            $"Stage=POST_SETISDEAD_FULL_SAFE_ABORT | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | Reason=NO_TARGETS",
+                            marker);
+                        return false;
+                    }
+
+                    Logger.Info(
+                        $"Stage=POST_SETISDEAD_FULL_SAFE_PREPARED | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | Targets={preparedTargetCount} | Packets={preparedSenders.Count} | PatchedUInt16={patchedUInt16Count} | MaxPacketBytes={maxPacketBytes} | AfterSetIsDeadData=True | HostStateMutated=False",
+                        marker);
+
+                    foreach (var prepared in preparedSenders)
+                    {
+                        prepared.SendMessage();
+                        sentPacketCount++;
+                    }
+
+                    Logger.Info(
+                        $"Stage=POST_SETISDEAD_FULL_SAFE_SENT | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | Targets={preparedTargetCount} | Packets={sentPacketCount} | PatchedUInt16={patchedUInt16Count} | MaxPacketBytes={maxPacketBytes} | AfterSetIsDeadData=True | BeforeLocalWrapUp=True | HostStateMutated=False",
+                        marker);
+
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Exception(ex, marker);
+
+                    if (buildingSender?.CurrentState is not CustomRpcSender.State.Finished)
+                        buildingSender?.stream.Recycle();
+
+                    for (var i = sentPacketCount; i < preparedSenders.Count; i++)
+                    {
+                        var prepared = preparedSenders[i];
+                        if (prepared.CurrentState is not CustomRpcSender.State.Finished)
+                            prepared.stream.Recycle();
+                    }
+
+                    return false;
                 }
             }
 
@@ -944,6 +2200,74 @@ namespace TownOfHostForE
                     LogStage("FINALIZER_ACTUAL_DATA_SENT", lease);
                     var viewer = Utils.GetPlayerById(lease.ViewerId);
                     var dummy = Utils.GetPlayerById(lease.DummyId);
+                    var exiledTarget = Utils.GetPlayerById(lease.ExiledId);
+                    // MOD_EXILE_REMOTE_VANILLA_PERSISTENT_IMPOSTOR_LEASE_AB_V8:
+                    // 生存remote Vanilla viewerが実追放後にviewer-visible alive Impostor=0へ戻る経路では、
+                    // dummy Impostor leaseをfinalizer後も保持し、Vanilla native game-over/blackout再判定を防ぐ。
+                    // viewer自身の実追放(V14A既存成功経路)は従来どおりrestore/clearする。
+                    if (lease.ViewerId != lease.ExiledId &&
+                        viewer?.Data != null &&
+                        !viewer.Data.Disconnected &&
+                        !viewer.Data.IsDead &&
+                        !viewer.AmOwner &&
+                        !viewer.IsModClient() &&
+                        viewer.GetClientId() == lease.ViewerClientId &&
+                        dummy?.Data != null &&
+                        !dummy.Data.Disconnected &&
+                        dummy.IsAlive() &&
+                        exiledTarget != null &&
+                        (exiledTarget.AmOwner || exiledTarget.IsModClient()))
+                    {
+                        // REMOTE_MOD_EXILE_FINALIZER_FULL_SAFE_REASSERT_AB_V23:
+                        // WrapUpFinalizerのactual SendGameData直後に、persistent lease対象だけへ
+                        // Dummy=Impostor SetRoleをtargeted Reliableで再投入し、その直後に既存V20の
+                        // wire-only full-safe Role/RoleWhenAlive NPIを再送する。
+                        // Host canonical role / broadcast / artificial delayは変更しない。
+                        var finalizerSafeSetRoleSent = false;
+                        CustomRpcSender? finalizerSafeSetRoleSender = null;
+                        try
+                        {
+                            finalizerSafeSetRoleSender = CustomRpcSender.Create(
+                                "RemoteModExile Finalizer Safe SetRole AB V23",
+                                SendOption.Reliable);
+                            finalizerSafeSetRoleSender.StartMessage(lease.ViewerClientId);
+                            finalizerSafeSetRoleSender
+                                .StartRpc(dummy.NetId, RpcCalls.SetRole)
+                                .Write((ushort)RoleTypes.Impostor)
+                                .Write(true)
+                                .EndRpc();
+                            finalizerSafeSetRoleSender.EndMessage();
+                            finalizerSafeSetRoleSender.SendMessage();
+                            finalizerSafeSetRoleSent = true;
+
+                            Logger.Info(
+                                $"Stage=FINALIZER_SAFE_SETROLE_SENT | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | SeparateReliableMessage=True | AfterFinalizerActualData=True | BeforeAtomicPoststate=True | ArtificialDelayMs=0 | HostStateMutated=False",
+                                "REMOTE_MOD_EXILE_FINALIZER_FULL_SAFE_REASSERT_AB_V23");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Exception(
+                                ex,
+                                "REMOTE_MOD_EXILE_FINALIZER_FULL_SAFE_REASSERT_AB_V23");
+
+                            if (finalizerSafeSetRoleSender?.CurrentState is not CustomRpcSender.State.Finished)
+                                finalizerSafeSetRoleSender?.stream.Recycle();
+                        }
+
+                        var finalizerFullSafeSent =
+                            finalizerSafeSetRoleSent &&
+                            TrySendRemoteModPostSetIsDeadFullSafeReassertAbV20(
+                                lease);
+
+                        Logger.Info(
+                            $"Stage=FINALIZER_FULL_SAFE_REASSERT_RESULT | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | ExiledId={lease.ExiledId} | SafeSetRoleSent={finalizerSafeSetRoleSent} | FullSafeSent={finalizerFullSafeSent} | AfterFinalizerActualData=True | BeforeAtomicPoststate=True | HostStateMutated=False",
+                            "REMOTE_MOD_EXILE_FINALIZER_FULL_SAFE_REASSERT_AB_V23");
+
+                        Logger.Info(
+                            $"Stage=PERSISTENT_LEASE_HELD | MeetingGeneration={lease.MeetingGeneration} | ViewerId={lease.ViewerId} | ViewerClientId={lease.ViewerClientId} | DummyId={lease.DummyId} | DummyActualRole={lease.DummyActualRole} | ExiledId={lease.ExiledId} | ExiledWasHost={exiledTarget.AmOwner} | ExiledWasRemoteMod={!exiledTarget.AmOwner && exiledTarget.IsModClient()}",
+                            "MOD_EXILE_REMOTE_VANILLA_PERSISTENT_IMPOSTOR_LEASE_AB_V8");
+                        continue;
+                    }
                     if (AmongUsClient.Instance.AmHost &&
                         exiled?.PlayerId == lease.ExiledId &&
                         viewer?.Data != null &&
@@ -1036,6 +2360,7 @@ namespace TownOfHostForE
         {
             public static void Prefix()
             {
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.End());
                 VanillaActualExileAtomicDeadGhostAbV34.ResetForLifecycle("GAME_END");
                 VanillaActualExileCriticalLeaseAbV14A.ResetForLifecycle();
             }
@@ -1045,6 +2370,7 @@ namespace TownOfHostForE
         {
             public static void Postfix(ExileController __instance)
             {
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.WrapStage("AFTER_NATIVE_WRAPUP"));
                 try
                 {
                     WrapUpPostfix(__instance.initData.networkedPlayer);
@@ -1081,6 +2407,7 @@ namespace TownOfHostForE
         {
             public static void Postfix(AirshipExileController __instance)
             {
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.WrapStage("BEFORE_NATIVE_WRAPUP_AND_SPAWN"));
                 try
                 {
                     WrapUpPostfix(__instance.initData.networkedPlayer);
@@ -1191,12 +2518,25 @@ namespace TownOfHostForE
             //WrapUpPostfixで例外が発生しても、この部分だけは確実に実行されます。
             if (AmongUsClient.Instance.AmHost)
             {
-                VanillaActualExileAtomicDeadGhostAbV34.CompleteWrapUpSynchronous(exiled);
+                var synchronousSelfGhostSent =
+                    VanillaActualExileAtomicDeadGhostAbV34
+                        .CompleteWrapUpSynchronous(exiled);
+
+                // VIEWER_NATIVE_TOPOLOGY_LIFECYCLE_AB_V27:
+                // Original WrapUp/slot13復帰後だけrestore/handoffする。
+                // SYNC_SELF_GHOST_FAIL_OPEN_AB_V1:
+                // sync成功時だけexiled self entryをV27から除外する。
+                AntiBlackout.FinalizeViewerNativeTopologyAfterWrapUpAbV27(
+                    exiled,
+                    synchronousSelfGhostSent);
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.PostWrapUp(exiled, synchronousSelfGhostSent));
+
                 _ = new LateTask(() =>
                 {
                     exiled = AntiBlackout_LastExiled;
                     AntiBlackout.SendGameData();
                     VanillaActualExileCriticalLeaseAbV14A.FinalizeAfterActualData(exiled);
+                    VanillaActualExileCriticalLeaseAbV14A.TrySendModExileAtomicPoststateAbV6(exiled);
                     VanillaActualExileAtomicDeadGhostAbV34.TrySendAtomicPacket(exiled);
                     if (AntiBlackout.OverrideExiledPlayer && // 追放対象が上書きされる状態 (上書きされない状態なら実行不要)
                         exiled != null && //exiledがnullでない
@@ -1204,6 +2544,12 @@ namespace TownOfHostForE
                     {
                         exiled.Object.RpcExile();
                     }
+
+                    // VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28:
+                    // Canonical actual GameData / atomic poststate / final RpcExile may
+                    // overwrite a wire-only task sentinel. Reassert only after all of them.
+                    AntiBlackout.ReassertViewerNativePersistentSentinelsAfterActualDataAbV28();
+                    TownOfHostForE.Roles.Impostor.EvilHacker.RearmSelfOnlyPhantomAfterFinalCanonicalABV3C();
                 }, 2.0f, "Restore IsDead Task");
                 _ = new LateTask(() =>
                 {
@@ -1226,12 +2572,35 @@ namespace TownOfHostForE
                     });
                     Main.AfterMeetingDeathPlayers.Clear();
                 }, 0.5f, "AfterMeetingDeathPlayers Task");
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.ScheduleFinal());
             }
 
             GameStates.AlreadyDied |= !Utils.IsAllAlive;
             RemoveDisableDevicesPatch.UpdateDisableDevices();
             SoundManager.Instance.ChangeAmbienceVolume(DataManager.Settings.Audio.AmbienceVolume);
             GameStates.InTask = true;
+
+            if (AmongUsClient.Instance.AmHost)
+            {
+                // DEAD_PET_AFTER_MEETING_CLEANUP_V1:
+                // OnSpawn / outfit restore後に全死亡者へ空Petを再assertする。
+                TownOfHostForE.Patches.PetSettings.RemoveAllDeadPetVisualsReliable(
+                    "MeetingWrapUp.TaskPhase");
+
+                // AfterMeetingDeathPlayersの0.5秒処理より後に1回だけ再確認する。
+                _ = new LateTask(() =>
+                {
+                    if (!AmongUsClient.Instance.AmHost)
+                        return;
+
+                    if (!GameStates.InTask)
+                        return;
+
+                    TownOfHostForE.Patches.PetSettings.RemoveAllDeadPetVisualsReliable(
+                        "MeetingWrapUp.Recheck");
+                }, 0.75f, "Dead Pet Cleanup Recheck");
+            }
+
             Logger.Info("タスクフェイズ開始", "Phase");
             // ROLEBUGTRACE_STAGE1B_PERMANENT
             RoleBugTrace.MeetingEnd();

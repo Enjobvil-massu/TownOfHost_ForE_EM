@@ -60,6 +60,8 @@
   <Copy SourceFiles="@(RuntimePluginFiles)"
         DestinationFolder="$(AmongUsPath)\BepInEx\plugins\"
         SkipUnchangedFiles="true" />
+  <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(AmongUsPath)\BepInEx\plugins\TownOfHostForE_EM.dll" />
+  <Delete Files="$(AmongUsPath)\BepInEx\plugins\$(TargetFileName)" Condition="'$(TargetFileName)' != 'TownOfHostForE_EM.dll'" />
 </Target>
 
   <!-- Local display-build version. RPC compatibility version remains unchanged. -->

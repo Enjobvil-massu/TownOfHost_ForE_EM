@@ -174,8 +174,10 @@ namespace TownOfHostForE
                 }
                 else
                 {
-                    TohLogo.sprite = Utils.LoadSprite("TownOfHost_ForE.Resources.TownOfHost-Logo.png", 300f);
-                }
+                    // TOH4E_EM_TITLE_LOGO_1_2X_AB_V1: 330 / 1.2 = 275 PPU
+                TohLogo.sprite = Utils.LoadSprite("TownOfHost_ForE.Resources.TownOfHost-Logo.png", 275f);
+                    logoTransform.localPosition = new(0f, 0.05f, 1f);
+                                    }
             }
         }
         [HarmonyPatch(typeof(ModManager), nameof(ModManager.LateUpdate))]

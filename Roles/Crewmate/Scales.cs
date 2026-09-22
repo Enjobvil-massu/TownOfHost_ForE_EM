@@ -761,7 +761,7 @@ public sealed class Scales : RoleBase
             meetingHud.RpcVotingComplete(
                 states.ToArray(),
                 null,
-                true);
+                true, false, 0);
             ExileControllerWrapUpPatch.AntiBlackout_LastExiled = exiled;
         }
         else
@@ -769,7 +769,7 @@ public sealed class Scales : RoleBase
             meetingHud.RpcVotingComplete(
                 states.ToArray(),
                 exiled,
-                isTie);
+                isTie, false, 0);
         }
 
         if (exiled != null)
@@ -864,11 +864,12 @@ public sealed class Scales : RoleBase
                 continue;
             }
 
+            if (!player.TryGetClientId(out var clientId)) continue;
             var sender = CustomRpcSender.Create(
                 "ScalesTieExileDisplayPermanent VotingComplete",
                 Hazel.SendOption.Reliable);
 
-            sender.StartMessage(player.GetClientId());
+            sender.StartMessage(clientId);
             sender.StartRpc(meetingHud.NetId, RpcCalls.VotingComplete)
                 .WritePacked(states.Length);
 
@@ -885,7 +886,7 @@ public sealed class Scales : RoleBase
         }
 
         // ホスト自身は従来どおりnull/tieを維持する。
-        meetingHud.VotingComplete(states, null, true);
+        meetingHud.VotingComplete(states, null, true, false, 0);
 
         // Among Us v17.4 native解析:
         // ExileController.BeginForGameplayは追放演出開始時に

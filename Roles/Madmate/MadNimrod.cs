@@ -72,7 +72,14 @@ public sealed class MadNimrod : RoleBase
                 return;
             }
 
-            reporter.NoCheckStartMeeting(target);
+            // RENEGADE_R2G_DELAYED_MEETING_COMMIT_GUARD_V2:
+            // 中央guardで会議が拒否された場合は、実行会議状態をcommitしない。
+            if (!reporter.NoCheckStartMeeting(target))
+            {
+                playerIdList.Remove(exiledPlayerId);
+                return;
+            }
+
             IsExecutionMeeting = exiledPlayerId;
             GuessManager.NotGueesFlag = true;
             playerIdList.Remove(exiledPlayerId);

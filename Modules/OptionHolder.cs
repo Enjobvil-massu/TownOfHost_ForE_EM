@@ -42,7 +42,7 @@ namespace TownOfHostForE
             taskOptionsLoad = Task.CompletedTask;
 
 
-            int chance = IRandom.Instance.Next(0, (int)CustomRoles._Max - 1);
+            int chance = IRandom.Instance.Next(0, (int)CustomRoles.HamburgerShop);
         }
         [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start)), HarmonyPostfix]
         public static void WaitOptionsLoad()
@@ -99,6 +99,10 @@ namespace TownOfHostForE
         public static OptionItem CanMakeMadmateCount;
         public static OptionItem MadmateCanFixLightsOut;
         public static OptionItem MadmateCanFixComms;
+        public static OptionItem MadmateSabotageRepairSettings = null!;
+        public static OptionItem MadmateCanFixReactor = null!;
+        public static OptionItem MadmateCanFixOxygen = null!;
+        public static OptionItem MadmateCanFixHeliSabotage = null!;
         public static OptionItem MadmateHasImpostorVision;
         public static OptionItem MadmateCanSeeKillFlash;
         public static OptionItem MadmateCanSeeOtherVotes;
@@ -132,6 +136,13 @@ namespace TownOfHostForE
         public static OptionItem DisableStartReactor;
         public static OptionItem DisableResetBreaker;
         public static OptionItem DisableFixWeatherNode;
+
+        // DEVICE_TIME_LIMIT_PORT_V21
+        public static OptionItem TimeLimitDevices;
+        public static OptionItem ShowDeviceTimeLimitInMeeting;
+        public static OptionItem TimeLimitAdmin;
+        public static OptionItem TimeLimitCamAndLog;
+        public static OptionItem TimeLimitVital;
 
         //デバイスブロック
         public static OptionItem DisableDevices;
@@ -420,11 +431,34 @@ namespace TownOfHostForE
         public static readonly string[] RoleAssigningAlgorithms =
         {
             "RoleAssigningAlgorithm.Default",
+            "RoleAssigningAlgorithm.MassuOriginal",
             "RoleAssigningAlgorithm.NetRandom",
             "RoleAssigningAlgorithm.HashRandom",
             "RoleAssigningAlgorithm.Xorshift",
             "RoleAssigningAlgorithm.MersenneTwister",
         };
+
+        // MASSU_ORIGINAL_ROLE_ASSIGN_AB_V1:
+        // UI selection indexと既存IRandom IDを分離する。
+        public static bool IsMassuOriginalRoleAssigning =>
+            RoleAssigningAlgorithm != null &&
+            RoleAssigningAlgorithm.GetValue() == 1;
+
+        public static int GetRoleAssigningRandomId(int selectionValue) =>
+            selectionValue switch
+            {
+                0 => 0,
+                1 => 0,
+                2 => 1,
+                3 => 2,
+                4 => 3,
+                5 => 4,
+                _ => 0,
+            };
+
+        public static int GetRoleAssigningRandomId() =>
+            GetRoleAssigningRandomId(
+                RoleAssigningAlgorithm?.GetValue() ?? 0);
         public static SuffixModes GetSuffixMode()
         {
             return (SuffixModes)SuffixMode.GetValue();
@@ -545,6 +579,43 @@ namespace TownOfHostForE
                 .SetParent(MadmateRevengePlayer)
                 .SetGameMode(CustomGameMode.Standard);
 
+            // MADMATE_SABOTAGE_REPAIR_OPTIONS_SERVER_PARITY_AB_V1:
+            // Parent is a visibility/grouping toggle only. Existing child values stay authoritative.
+            MadmateSabotageRepairSettings = BooleanOptionItem.Create(91534, "MadmateSabotageRepairSettings", false, TabGroup.MadmateRoles, false)
+                .SetColor(Utils.GetCodeOfColor("#00fa9a"))
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateCanFixLightsOut = BooleanOptionItem.Create(91520, "MadmateCanFixLightsOut", false, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateSabotageRepairSettings)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateCanFixComms = BooleanOptionItem.Create(91521, "MadmateCanFixComms", false, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateSabotageRepairSettings)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateCanFixReactor = BooleanOptionItem.Create(91535, "MadmateCanFixReactor", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateSabotageRepairSettings)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateCanFixOxygen = BooleanOptionItem.Create(91536, "MadmateCanFixOxygen", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateSabotageRepairSettings)
+                .SetGameMode(CustomGameMode.Standard);
+            MadmateCanFixHeliSabotage = BooleanOptionItem.Create(91537, "MadmateCanFixHeliSabotage", true, TabGroup.MadmateRoles, false)
+                .SetParent(MadmateSabotageRepairSettings)
+                .SetGameMode(CustomGameMode.Standard);
+
+            // Madmate Common Options
+            MadmateVentCooldown = FloatOptionItem.Create(91528, "MadmateVentCooldown", new(0f, 180f, 1f), 0f, TabGroup.MadmateRoles, false)
+                .SetValueFormat(OptionFormat.Seconds);
+            MadmateVentMaxTime = FloatOptionItem.Create(91529, "MadmateVentMaxTime", new(0f, 180f, 5f), 0f, TabGroup.MadmateRoles, false)
+                .SetValueFormat(OptionFormat.Seconds);
+            // MADMATE_SHARED_VISION_SELECTION_V1:
+            // Existing ID91522 index is preserved: 0=Crewmate, 1=Impostor.
+            MadmateHasImpostorVision = StringOptionItem.Create(
+                91522,
+                "MadmateVision",
+                new[] { "MadmateVision.Crewmate", "MadmateVision.Impostor" },
+                0,
+                TabGroup.MadmateRoles,
+                false)
+                .SetGameMode(CustomGameMode.Standard);
+
             sortedRoleInfo.Where(role => role.CustomRoleType == CustomRoleTypes.Madmate).Do(info =>
             {
                 SetupRoleOptions(info);
@@ -556,18 +627,11 @@ namespace TownOfHostForE
                 .SetHeader(true)
                 .SetGameMode(CustomGameMode.Standard)
                 .SetValueFormat(OptionFormat.Players);
-            MadmateCanFixLightsOut = BooleanOptionItem.Create(91520, "MadmateCanFixLightsOut", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
-            MadmateCanFixComms = BooleanOptionItem.Create(91521, "MadmateCanFixComms", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
-            MadmateHasImpostorVision = BooleanOptionItem.Create(91522, "MadmateHasImpostorVision", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
+
             MadmateCanSeeKillFlash = BooleanOptionItem.Create(91523, "MadmateCanSeeKillFlash", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
             MadmateCanSeeOtherVotes = BooleanOptionItem.Create(91524, "MadmateCanSeeOtherVotes", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
             MadmateCanSeeDeathReason = BooleanOptionItem.Create(91525, "MadmateCanSeeDeathReason", false, TabGroup.MadmateRoles, false).SetParent(CanMakeMadmateCount).SetGameMode(CustomGameMode.Standard);
 
-            // Madmate Common Options
-            MadmateVentCooldown = FloatOptionItem.Create(91528, "MadmateVentCooldown", new(0f, 180f, 5f), 0f, TabGroup.MadmateRoles, false)
-                .SetValueFormat(OptionFormat.Seconds);
-            MadmateVentMaxTime = FloatOptionItem.Create(91529, "MadmateVentMaxTime", new(0f, 180f, 5f), 0f, TabGroup.MadmateRoles, false)
-                .SetValueFormat(OptionFormat.Seconds);
 
             // Crewmate
             SetupRoleOptions(CustomRoleManager.AllRolesInfo[CustomRoles.Engineer]);
@@ -708,6 +772,31 @@ namespace TownOfHostForE
                 .SetColor(Palette.Orange)
                 .SetHeader(true);
             RandomSpawn.SetupCustomOption();
+
+            // DEVICE_TIME_LIMIT_PORT_V21
+            // デバイスに制限時間
+            TimeLimitDevices = BooleanOptionItem.Create(100090, "TimeLimitDevices", false, TabGroup.MainSettings, false)
+                .SetColor(Palette.Orange)
+                .SetGameMode(CustomGameMode.Standard);
+
+            ShowDeviceTimeLimitInMeeting = BooleanOptionItem.Create(100091, "ShowDeviceTimeLimitInMeeting", true, TabGroup.MainSettings, false)
+                .SetParent(TimeLimitDevices)
+                .SetGameMode(CustomGameMode.Standard);
+
+            TimeLimitAdmin = FloatOptionItem.Create(100092, "TimeLimitAdmin", new(0f, 300f, 1f), 20f, TabGroup.MainSettings, false)
+                .SetValueFormat(OptionFormat.Seconds)
+                .SetParent(TimeLimitDevices)
+                .SetGameMode(CustomGameMode.Standard);
+
+            TimeLimitCamAndLog = FloatOptionItem.Create(100093, "TimeLimitCamAndLog", new(0f, 300f, 1f), 20f, TabGroup.MainSettings, false)
+                .SetValueFormat(OptionFormat.Seconds)
+                .SetParent(TimeLimitDevices)
+                .SetGameMode(CustomGameMode.Standard);
+
+            TimeLimitVital = FloatOptionItem.Create(100094, "TimeLimitVital", new(0f, 300f, 1f), 20f, TabGroup.MainSettings, false)
+                .SetValueFormat(OptionFormat.Seconds)
+                .SetParent(TimeLimitDevices)
+                .SetGameMode(CustomGameMode.Standard);
 
             //デバイス無効化
             DisableDevices = BooleanOptionItem.Create(100100, "DisableDevices", false, TabGroup.MainSettings, false)
@@ -936,7 +1025,7 @@ namespace TownOfHostForE
             AddonShow = StringOptionItem.Create(1_002_006, "AddonShowMode", addonShowModes, 0, TabGroup.MainSettings, true);
             ChangeIntro = BooleanOptionItem.Create(1_002_007, "ChangeIntro", false, TabGroup.MainSettings, false);
             RoleAssigningAlgorithm = StringOptionItem.Create(1_002_008, "RoleAssigningAlgorithm", RoleAssigningAlgorithms, 0, TabGroup.MainSettings, true)
-                .RegisterUpdateValueEvent((object obj, OptionItem.UpdateValueEventArgs args) => IRandom.SetInstanceById(args.CurrentValue));
+                .RegisterUpdateValueEvent((object obj, OptionItem.UpdateValueEventArgs args) => IRandom.SetInstanceById(GetRoleAssigningRandomId(args.CurrentValue)));
             VoiceReader.SetupCustomOption();
             BGMSettings.SetupCustomOption();
             #endregion
@@ -1075,25 +1164,56 @@ namespace TownOfHostForE
             public OptionItem doOverride;
             public OptionItem assignCommonTasks;
             public OptionItem numLongTasks;
+            // MADSNITCH_INDIVIDUAL_COMMON_TASK_COUNT_V1:
+            // nullの役職は従来OverrideTasksData挙動を完全維持する。
+            public OptionItem numCommonTasks;
             public OptionItem numShortTasks;
 
-            public OverrideTasksData(int idStart, TabGroup tab, CustomRoles role, OptionItem option = null)
+            public OverrideTasksData(
+                int idStart,
+                TabGroup tab,
+                CustomRoles role,
+                OptionItem option = null,
+                string doOverrideName = "doOverride",
+                string assignCommonTasksName = "assignCommonTasks",
+                System.Action<OptionItem> afterDoOverrideCreated = null,
+                string longTasksName = "roleLongTasksNum",
+                string shortTasksName = "roleShortTasksNum",
+                int? numCommonTasksId = null,
+                string numCommonTasksName = null,
+                int numCommonTasksDefault = 1)
             {
                 this.IdStart = idStart;
                 this.Role = role;
 
                 if (option == null) option = CustomRoleSpawnChances[role];
                 Dictionary<string, string> replacementDic = new() { { "%role%", Utils.GetRoleName(role) } };
-                doOverride = BooleanOptionItem.Create(idStart++, "doOverride", false, tab, false).SetParent(option)
+                doOverride = BooleanOptionItem.Create(idStart++, doOverrideName, false, tab, false).SetParent(option)
                     .SetValueFormat(OptionFormat.None);
                 doOverride.ReplacementDictionary = replacementDic;
-                assignCommonTasks = BooleanOptionItem.Create(idStart++, "assignCommonTasks", true, tab, false).SetParent(doOverride)
+                afterDoOverrideCreated?.Invoke(doOverride);
+                assignCommonTasks = BooleanOptionItem.Create(idStart++, assignCommonTasksName, true, tab, false).SetParent(doOverride)
                     .SetValueFormat(OptionFormat.None);
                 assignCommonTasks.ReplacementDictionary = replacementDic;
-                numLongTasks = IntegerOptionItem.Create(idStart++, "roleLongTasksNum", new(0, 99, 1), 3, tab, false).SetParent(doOverride)
+                numLongTasks = IntegerOptionItem.Create(idStart++, longTasksName, new(0, 99, 1), 3, tab, false).SetParent(doOverride)
                     .SetValueFormat(OptionFormat.Pieces);
                 numLongTasks.ReplacementDictionary = replacementDic;
-                numShortTasks = IntegerOptionItem.Create(idStart++, "roleShortTasksNum", new(0, 99, 1), 3, tab, false).SetParent(doOverride)
+
+                if (numCommonTasksId.HasValue && numCommonTasksName != null)
+                {
+                    numCommonTasks = IntegerOptionItem.Create(
+                        numCommonTasksId.Value,
+                        numCommonTasksName,
+                        new(0, 99, 1),
+                        numCommonTasksDefault,
+                        tab,
+                        false)
+                        .SetParent(doOverride)
+                        .SetValueFormat(OptionFormat.Pieces);
+                    numCommonTasks.ReplacementDictionary = replacementDic;
+                }
+
+                numShortTasks = IntegerOptionItem.Create(idStart++, shortTasksName, new(0, 99, 1), 3, tab, false).SetParent(doOverride)
                     .SetValueFormat(OptionFormat.Pieces);
                 numShortTasks.ReplacementDictionary = replacementDic;
 
@@ -1104,9 +1224,32 @@ namespace TownOfHostForE
             {
                 return new OverrideTasksData(idStart, tab, role);
             }
-            public static OverrideTasksData Create(SimpleRoleInfo roleInfo, int idOffset, OptionItem option = null)
+            public static OverrideTasksData Create(
+                SimpleRoleInfo roleInfo,
+                int idOffset,
+                OptionItem option = null,
+                string doOverrideName = "doOverride",
+                string assignCommonTasksName = "assignCommonTasks",
+                System.Action<OptionItem> afterDoOverrideCreated = null,
+                string longTasksName = "roleLongTasksNum",
+                string shortTasksName = "roleShortTasksNum",
+                int? numCommonTasksId = null,
+                string numCommonTasksName = null,
+                int numCommonTasksDefault = 1)
             {
-                return new OverrideTasksData(roleInfo.ConfigId + idOffset, roleInfo.Tab, roleInfo.RoleName, option);
+                return new OverrideTasksData(
+                    roleInfo.ConfigId + idOffset,
+                    roleInfo.Tab,
+                    roleInfo.RoleName,
+                    option,
+                    doOverrideName,
+                    assignCommonTasksName,
+                    afterDoOverrideCreated,
+                    longTasksName,
+                    shortTasksName,
+                    numCommonTasksId,
+                    numCommonTasksName,
+                    numCommonTasksDefault);
             }
         }
     }

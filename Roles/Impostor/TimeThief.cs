@@ -48,7 +48,9 @@ namespace TownOfHostForE.Roles.Impostor
 
         private static void SetupOptionItem()
         {
-            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 2.5f), 30f, false)
+            OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(2.5f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             OptionDecreaseMeetingTime = IntegerOptionItem.Create(RoleInfo, 11, OptionName.TimeThiefDecreaseMeetingTime, new(0, 100, 1), 20, false)
                 .SetValueFormat(OptionFormat.Seconds);

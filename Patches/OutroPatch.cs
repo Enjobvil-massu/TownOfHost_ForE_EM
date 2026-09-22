@@ -30,6 +30,12 @@ namespace TownOfHostForE
 
             BGMSettings.SetEndingBGM();
             Logger.Info("-----------ゲーム終了-----------", "Phase");
+
+            // MATCHLOG_ONE_MATCH_ONE_FILE_AB_V1:
+            // EndGame後続のsummary/kill-logも取り切るため5秒だけ保持してからcloseする。
+            // その間も500ms flush + FileShare.ReadWriteでゲーム起動中に読める。
+            Modules.MatchLogManager.ScheduleEndMatch();
+
             Main.NormalOptions.NumImpostors = ChangeRoleSettings.ImpostorSetNum;
             if (!GameStates.IsModHost) return;
             SummaryText = new();

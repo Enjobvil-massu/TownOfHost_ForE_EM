@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using TownOfHostForE.Modules.OptionItems.Interfaces;
 using TownOfHostForE.Modules.OptionItems;
+using TownOfHostForE.Roles.Core;
 using TownOfHostForE;
 using UnityEngine;
 using static TownOfHostForE.Translator;
@@ -16,6 +18,7 @@ namespace TownOfHostForE
     {
         private static GameOptionsMenu tohSettingsTab;
         private static PassiveButton tohSettingsButton;
+        private static readonly Dictionary<int, OptionItem> OptionItemsByStringOptionInstanceId = new();
         public static CategoryHeaderMasked MainCategoryHeader { get; private set; }
         public static CategoryHeaderMasked ImpostorRoleCategoryHeader { get; private set; }
         public static CategoryHeaderMasked MadmateRoleCategoryHeader { get; private set; }
@@ -27,6 +30,7 @@ namespace TownOfHostForE
         [HarmonyPatch(nameof(GameSettingMenu.Start)), HarmonyPostfix]
         public static void StartPostfix(GameSettingMenu __instance)
         {
+            OptionItemsByStringOptionInstanceId.Clear();
             tohSettingsTab = Object.Instantiate(__instance.GameSettingsTab, __instance.GameSettingsTab.transform.parent);
             tohSettingsTab.name = TOHMenuName;
             var vanillaOptions = tohSettingsTab.GetComponentsInChildren<OptionBehaviour>();
@@ -56,6 +60,7 @@ namespace TownOfHostForE
             tohSettingsButton.OnClick.AddListener((Action)(() =>
             {
                 __instance.ChangeTab(-1, false);  // バニラタブを閉じる
+                GameOptionsMenuUpdatePatch.ForceRefresh(tohSettingsTab);
                 tohSettingsTab.gameObject.SetActive(true);
                 __instance.MenuDescriptionText.text = GetString("TOHSettingsDescription");
                 tohSettingsButton.SelectButton(true);
@@ -78,6 +83,8 @@ namespace TownOfHostForE
                 if (option.OptionBehaviour == null)
                 {
                     var stringOption = Object.Instantiate(template, tohSettingsTab.settingsContainer);
+                    OptionItemsByStringOptionInstanceId[stringOption.GetInstanceID()] = option;
+                    option.OptionBehaviour = stringOption;
                     scOptions.Add(stringOption);
                     stringOption.SetClickMask(__instance.GameSettingsButton.ClickMask);
                     stringOption.SetUpFromData(stringOption.data, GameOptionsMenu.MASK_LAYER);
@@ -99,8 +106,6 @@ namespace TownOfHostForE
                     stringOption.LabelBackground.transform.localPosition += new Vector3(-1f + indent, 0f, 0f);
                     stringOption.TitleText.rectTransform.sizeDelta += new Vector2(2f - indent * 2, 0f);
                     stringOption.TitleText.transform.localPosition += new Vector3(-1f + indent, 0f, 0f);
-
-                    option.OptionBehaviour = stringOption;
                 }
                 option.OptionBehaviour.gameObject.SetActive(true);
             }
@@ -116,6 +121,26 @@ namespace TownOfHostForE
             var jumpToNeutralButton = CreateJumpToCategoryButton(__instance, tohSettingsTab, "TownOfHost_ForE.Resources.TabIcon_NeutralRoles.png", ref jumpButtonY, NeutralRoleCategoryHeader);
             var jumpTAnimalsButton = CreateJumpToCategoryButton(__instance, tohSettingsTab, "TownOfHost_ForE.Resources.TabIcon_AnimalsRoles.png", ref jumpButtonY, AnimalsRoleCategoryHeader);
             var jumpToAddOnButton = CreateJumpToCategoryButton(__instance, tohSettingsTab, "TownOfHost_ForE.Resources.TabIcon_Addons.png", ref jumpButtonY, AddOnCategoryHeader);
+        }
+        public static bool TryGetOptionItem(StringOption stringOption, out OptionItem option)
+        {
+            var instanceId = stringOption.GetInstanceID();
+            if (OptionItemsByStringOptionInstanceId.TryGetValue(instanceId, out var mappedOption))
+            {
+                option = mappedOption;
+                return true;
+            }
+
+            var fallbackOption = OptionItem.AllOptions.FirstOrDefault(opt => opt.OptionBehaviour == stringOption);
+            if (fallbackOption == null)
+            {
+                option = default!;
+                return false;
+            }
+
+            option = fallbackOption;
+            OptionItemsByStringOptionInstanceId[instanceId] = fallbackOption;
+            return true;
         }
         private static MapSelectButton CreateJumpToCategoryButton(GameSettingMenu __instance, GameOptionsMenu tohTab, string resourcePath, ref float localY, CategoryHeaderMasked jumpTo)
         {
@@ -211,6 +236,12 @@ namespace TownOfHostForE
     {
         private static float _timer = 1f;
 
+        public static void ForceRefresh(GameOptionsMenu __instance)
+        {
+            _timer = 1f;
+            Postfix(__instance);
+        }
+
         public static void Postfix(GameOptionsMenu __instance)
         {
             if (__instance.name != GameSettingMenuPatch.TOHMenuName) return;
@@ -281,6 +312,19 @@ namespace TownOfHostForE
                 parent = parent.Parent;
             }
 
+            // MADSNITCH_OFF_ONLY_INDIVIDUAL_TASK_ROWS_V1:
+            // 「公式クルーメイトタスク数を割り当てる」がONなら個別3項目だけ非表示。
+            if (enabled
+                && Options.OverrideTasksData.AllData.TryGetValue(CustomRoles.MadSnitch, out var madSnitchTaskData)
+                && madSnitchTaskData.numCommonTasks != null
+                && madSnitchTaskData.assignCommonTasks.GetBool()
+                && (item == madSnitchTaskData.numLongTasks
+                    || item == madSnitchTaskData.numCommonTasks
+                    || item == madSnitchTaskData.numShortTasks))
+            {
+                enabled = false;
+            }
+
             item.OptionBehaviour.gameObject.SetActive(enabled);
             if (enabled)
             {
@@ -310,8 +354,7 @@ namespace TownOfHostForE
     {
         public static bool Prefix(StringOption __instance)
         {
-            var option = OptionItem.AllOptions.FirstOrDefault(opt => opt.OptionBehaviour == __instance);
-            if (option == null) return true;
+            if (!GameSettingMenuPatch.TryGetOptionItem(__instance, out var option)) return true;
 
             __instance.OnValueChanged = new Action<OptionBehaviour>((o) => { });
             __instance.TitleText.text = option.GetName(option is RoleSpawnChanceOptionItem);
@@ -327,10 +370,9 @@ namespace TownOfHostForE
     {
         public static bool Prefix(StringOption __instance)
         {
-            var option = OptionItem.AllOptions.FirstOrDefault(opt => opt.OptionBehaviour == __instance);
-            if (option == null) return true;
+            if (!GameSettingMenuPatch.TryGetOptionItem(__instance, out var option)) return true;
 
-            option.SetValue(option.CurrentValue + (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? 5 : 1));
+            option.SetValue(option.CurrentValue + (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? 5 : 1) * (option is FloatOptionItem floatOption ? floatOption.UiStepMultiplier : 1));
             return false;
         }
     }
@@ -340,10 +382,9 @@ namespace TownOfHostForE
     {
         public static bool Prefix(StringOption __instance)
         {
-            var option = OptionItem.AllOptions.FirstOrDefault(opt => opt.OptionBehaviour == __instance);
-            if (option == null) return true;
+            if (!GameSettingMenuPatch.TryGetOptionItem(__instance, out var option)) return true;
 
-            option.SetValue(option.CurrentValue - (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? 5 : 1));
+            option.SetValue(option.CurrentValue - (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift) ? 5 : 1) * (option is FloatOptionItem floatOption ? floatOption.UiStepMultiplier : 1));
             return false;
         }
     }
@@ -410,8 +451,10 @@ namespace TownOfHostForE
             __instance.VisualTasks = false;
 
             __instance.roleOptions.SetRoleRate(RoleTypes.Shapeshifter, 0, 0);
+            __instance.roleOptions.SetRoleRate(RoleTypes.Viper, 0, 0);
             __instance.roleOptions.SetRoleRate(RoleTypes.Phantom, 0, 0);
             __instance.roleOptions.SetRoleRate(RoleTypes.Scientist, 0, 0);
+            __instance.roleOptions.SetRoleRate(RoleTypes.Judge, 0, 0);
             __instance.roleOptions.SetRoleRate(RoleTypes.GuardianAngel, 0, 0);
             __instance.roleOptions.SetRoleRate(RoleTypes.Engineer, 0, 0);
             __instance.roleOptions.SetRoleRate(RoleTypes.Noisemaker, 0, 0);

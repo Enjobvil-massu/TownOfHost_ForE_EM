@@ -271,7 +271,7 @@ namespace TownOfHostForE
                 PlayerControl.LocalPlayer == null
             ) return;
 
-            RPC.SyncCustomSettingsRPC();
+            RPC.SyncCustomSettingsRPC(origin: "OptionItem.SyncAllOptions");
         }
 
         // EventArgs

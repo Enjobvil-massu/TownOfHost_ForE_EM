@@ -476,10 +476,19 @@ namespace TownOfHostForE
                             var role = PlayerControl.LocalPlayer.GetCustomRole();
                             string roleHelp;
                             // CMD_ROLE_DESC_PERMANENT: Crewmate・Impostorは既存説明へフォールバック
-                            if (role is CustomRoles.Crewmate or CustomRoles.Impostor)
+                            // VIPER_JUDGE_CMD_M_OFFICIAL_BLURB_AB_V1: native wrapperは公式BlurbLong経路を使用
+                            if (role is CustomRoles.Crewmate or CustomRoles.Impostor or CustomRoles.NormalPhantom or CustomRoles.NormalViper or CustomRoles.NormalJudge)
                             {
                                 roleHelp = GetString(role.ToString()) + PlayerControl.LocalPlayer.GetRoleInfo(true);
                                 Logger.Info($"CMD_ROLE_DESC_PERMANENT Local vanilla fallback Role={role}", "ChatCommand");
+                            }
+                            else if (role == CustomRoles.Renegade)
+                            {
+                                // RENEGADE_DYNAMIC_CMD_R1: values come directly from current role options.
+                                roleHelp =
+                                    GetString(role.ToString()) +
+                                    "\n" +
+                                    TownOfHostForE.Roles.Neutral.Renegade.GetRoleDescription(true);
                             }
                             else
                             {
@@ -958,12 +967,22 @@ namespace TownOfHostForE
                     {
                         var role = player.GetCustomRole();
                         // CMD_ROLE_DESC_PERMANENT: Crewmate・Impostorは既存説明へフォールバック
-                        if (role is CustomRoles.Crewmate or CustomRoles.Impostor)
+                        if (role is CustomRoles.Crewmate or CustomRoles.Impostor or CustomRoles.NormalPhantom or CustomRoles.NormalViper or CustomRoles.NormalJudge)
                         {
                             Logger.Info($"CMD_ROLE_DESC_PERMANENT Receive vanilla fallback PlayerId={player.PlayerId} Role={role}", "ChatCommand");
                             Utils.SendMessage(
                                 Utils.AppendRoleHelpNetworkBottomPadding(
                                     GetString(role.ToString()) + player.GetRoleInfo(true)),
+                                player.PlayerId);
+                        }
+                        else if (role == CustomRoles.Renegade)
+                        {
+                            // RENEGADE_DYNAMIC_CMD_R1: Vanilla participant receives current configured values.
+                            Utils.SendMessage(
+                                Utils.AppendRoleHelpNetworkBottomPadding(
+                                    GetString(role.ToString()) +
+                                    "\n" +
+                                    TownOfHostForE.Roles.Neutral.Renegade.GetRoleDescription(true)),
                                 player.PlayerId);
                         }
                         else if (role.GetRoleInfo()?.Description is { } description)
@@ -2166,6 +2185,33 @@ namespace TownOfHostForE
             }
         }
 
+        // JOIN_LOBBY_INFO_OFFICIAL_RICHTEXT_SAFE_V317:
+        // Utils.csのauthoring色 #FFD966 / #FF0000 はそのまま保持する。
+        // official transportでは赤だけを数字0個のnamed redへ変換する。
+        // #FFD966はASCII数字3個なので、赤をnamed color化した後は
+        // 本文中のTOH4E 2箇所を含めても合計5個で既存上限以内。
+        // 追加の本文数字がある言語でも既存digit-compatがoutside digitsだけを
+        // 全角化できるため、#FFD966タグそのものを壊さず安全化できる。
+        // 全system messageの安全化は無効化しない。
+        private static OfficialChatDigitCompatV2Result PrepareJoinLobbyInfoOfficialChatDigitCompatV317(
+            string original,
+            bool isOfficialServer)
+        {
+            if (!isOfficialServer)
+            {
+                return PrepareOfficialChatDigitCompatV2(original, false);
+            }
+
+            var transportRichText = (original ?? ".")
+                .Replace(
+                    "<color=#FF0000>",
+                    "<color=red>",
+                    StringComparison.OrdinalIgnoreCase);
+
+            return PrepareOfficialChatDigitCompatV2(
+                transportRichText,
+                true);
+        }
         private static OfficialChatDigitCompatV2Result PrepareOfficialChatDigitCompatV2(
             string original,
             bool isOfficialServer)
@@ -2892,7 +2938,8 @@ namespace TownOfHostForE
             {
                 return;
             }
-            int clientId = sendTo == byte.MaxValue ? -1 : Utils.GetPlayerById(sendTo).GetClientId();
+            int clientId = -1;
+            if (sendTo != byte.MaxValue && !Utils.GetPlayerById(sendTo).TryGetClientId(out clientId)) return;
             var name = player.Data.PlayerName;
             if (clientId == -1)
             {
@@ -2903,7 +2950,14 @@ namespace TownOfHostForE
             var isOnlineGame = AmongUsClient.Instance.NetworkMode == NetworkModes.OnlineGame;
             var isOfficialServer = IsOfficialAmongUsServerForChatDigitCompatV2(out var officialServerReason);
             var networkTitle = PrepareOfficialChatDigitCompatV2(title, isOfficialServer);
-            var networkBody = PrepareOfficialChatDigitCompatV2(msg, isOfficialServer);
+            var networkBody =
+                messageKind == SystemMessageKind.JoinLobbyInfo
+                    ? PrepareJoinLobbyInfoOfficialChatDigitCompatV317(
+                        msg,
+                        isOfficialServer)
+                    : PrepareOfficialChatDigitCompatV2(
+                        msg,
+                        isOfficialServer);
             IReadOnlyList<string> networkBodies = new[] { networkBody.NetworkText };
             var roleHelpSafeHash = "";
             var roleHelpConcatHash = "";

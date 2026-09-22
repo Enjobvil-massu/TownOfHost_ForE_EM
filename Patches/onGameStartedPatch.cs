@@ -24,8 +24,17 @@ namespace TownOfHostForE
         public static int ImpostorSetNum = 2;
         public static void Postfix(AmongUsClient __instance)
         {
+            TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Begin());
+            CriticalStartFlowPacketDiagnostic.BeginFlow("AmongUsClient.CoStartGame.Postfix");
+            StartFlowReadiness.BeginFlow();
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "CHANGE_ROLE_SETTINGS_ENTER",
+                $"AmHost={__instance.AmHost} Players={Main.AllPlayerControls.Count()}");
+
             //注:この時点では役職は設定されていません。
             Main.NormalOptions.roleOptions.SetRoleRate(RoleTypes.GuardianAngel, 0, 0);
+            Main.NormalOptions.roleOptions.SetRoleRate(RoleTypes.Viper, 0, 0);
+            Main.NormalOptions.roleOptions.SetRoleRate(RoleTypes.Judge, 0, 0);
 
             ImpostorSetNum = Main.NormalOptions.NumImpostors;
 
@@ -115,7 +124,7 @@ namespace TownOfHostForE
             Main.VisibleTasksCount = true;
             if (__instance.AmHost)
             {
-                RPC.SyncCustomSettingsRPC();
+                RPC.SyncCustomSettingsRPC(origin: "CoStartGame.ChangeRoleSettings");
                 if (Options.CurrentGameMode == CustomGameMode.HideAndSeek)
                 {
                     Options.HideAndSeekKillDelayTimer = Options.KillDelay.GetFloat();
@@ -126,7 +135,8 @@ namespace TownOfHostForE
                 }
             }
 
-            IRandom.SetInstanceById(Options.RoleAssigningAlgorithm.GetValue());
+            IRandom.SetInstanceById(Options.GetRoleAssigningRandomId());
+            MassuOriginalRoleAssignmentABV1.BeginGame();
 
             MeetingStates.MeetingCalled = false;
             MeetingStates.FirstMeeting = true;
@@ -161,6 +171,11 @@ namespace TownOfHostForE
 
         internal static readonly Dictionary<byte, byte>
             ClientReadyBarrierCandidateByViewer = new();
+
+        // EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4
+        // EvilHacker reproducerだけ。permanent map/queued canonical roleは変更しない。
+        private static readonly Dictionary<byte, (byte AnchorId, RoleTypes CanonicalRole, byte SoleImpostorId)>
+            ClientReadyBarrierAtomicAnchorByViewerABV4 = new();
 
         private static List<ClientReadyBarrierCapturedUInt16>? ClientReadyBarrierCapturedUInt16Writes;
         private static IntPtr ClientReadyBarrierCapturedWriterPointer = IntPtr.Zero;
@@ -307,27 +322,32 @@ namespace TownOfHostForE
                 .EndRpc();
         }
 
-        private static CustomRpcSender BuildClientReadyBarrierFallbackSender(
+        private static readonly HashSet<byte> P4SuppressedIntroViewerIds = new();
+
+        private static bool TryBuildClientReadyBarrierFallbackSender(
             PlayerControl viewer,
-            List<(PlayerControl Target, RoleTypes Role)> queuedRoles)
+            List<(PlayerControl Target, RoleTypes Role)> queuedRoles,
+            out CustomRpcSender fallback)
         {
-            var fallback = new CustomRpcSender(
+            fallback = null!;
+            if (!viewer.TryGetClientId(out var clientId)) return false;
+            fallback = new CustomRpcSender(
                 $"{viewer.name}'s ClientReady Barrier Fallback Sender",
                 SendOption.Reliable,
                 false);
 
-            fallback.StartMessage(viewer.GetClientId());
+            fallback.StartMessage(clientId);
 
             foreach (var queued in queuedRoles)
             {
                 fallback.RpcSetRole(
                     queued.Target,
                     queued.Role,
-                    viewer.GetClientId());
+                    clientId);
             }
 
             fallback.EndMessage();
-            return fallback;
+            return true;
         }
 
         private static bool TryBuildClientReadyBarrierSender(
@@ -338,6 +358,7 @@ namespace TownOfHostForE
         {
             barrierSender = null!;
             candidatePlayerId = byte.MaxValue;
+            if (!viewer.TryGetClientId(out var clientId)) return false;
 
             var allTargets = Main.AllPlayerControls
                 .Where(target =>
@@ -371,13 +392,118 @@ namespace TownOfHostForE
                 return false;
             }
 
-            var candidate = allTargets.FirstOrDefault(target =>
-                target.PlayerId != viewer.PlayerId &&
-                queuedTargetIds.Contains(target.PlayerId) &&
-                target.Data != null &&
-                !target.Data.Disconnected &&
-                !target.Data.IsDead &&
-                target.Data.Role != null);
+            var hasAtomicAnchor =
+                ClientReadyBarrierAtomicAnchorByViewerABV4.TryGetValue(
+                    viewer.PlayerId,
+                    out var atomicAnchor);
+
+            PlayerControl? candidate;
+            if (hasAtomicAnchor)
+            {
+                // EVILHACKER_ATOMIC_ANCHOR_PREROLE_READY_AB_V5:
+                // Atomic anchor is selected from the canonical queued role plan.
+                // Release() starts CoSetRole asynchronously and immediately builds
+                // the ClientReady barrier in the same call, so Data.Role may still
+                // be null here. The atomic root itself writes Impostor/true and then
+                // restores CanonicalRole/false; pre-existing RoleBehaviour is not
+                // used as the authority for this atomic candidate selection.
+                candidate = allTargets.FirstOrDefault(target =>
+                    target.PlayerId == atomicAnchor.AnchorId &&
+                    target.PlayerId != viewer.PlayerId &&
+                    queuedTargetIds.Contains(target.PlayerId) &&
+                    target.Data != null &&
+                    !target.Data.Disconnected &&
+                    !target.Data.IsDead);
+
+                var canonicalMatches = queuedRoles.Count(item =>
+                    item.Target != null &&
+                    item.Target.PlayerId == atomicAnchor.AnchorId &&
+                    item.Role == atomicAnchor.CanonicalRole);
+
+                // EVILHACKER_ATOMIC_ANCHOR_RUNTIME_PREDICATE_DIAGNOSTIC_AB_V1:
+                // INVALID_PLAN時にどのcandidate predicateが不成立かを確定する。
+                // 診断のみ。candidate選択・Role bundle・wire内容は変更しない。
+                var rawAtomicAnchor = Main.AllPlayerControls.FirstOrDefault(target =>
+                    target != null &&
+                    target.PlayerId == atomicAnchor.AnchorId);
+
+                var filteredAtomicAnchor = allTargets.FirstOrDefault(target =>
+                    target.PlayerId == atomicAnchor.AnchorId);
+
+                var rawDataPresent =
+                    rawAtomicAnchor != null &&
+                    rawAtomicAnchor.Data != null;
+
+                var rawDisconnected =
+                    rawAtomicAnchor != null &&
+                    rawAtomicAnchor.Data != null &&
+                    rawAtomicAnchor.Data.Disconnected;
+
+                var rawIsDead =
+                    rawAtomicAnchor != null &&
+                    rawAtomicAnchor.Data != null &&
+                    rawAtomicAnchor.Data.IsDead;
+
+                var filteredDataPresent =
+                    filteredAtomicAnchor != null &&
+                    filteredAtomicAnchor.Data != null;
+
+                var filteredDisconnected =
+                    filteredAtomicAnchor != null &&
+                    filteredAtomicAnchor.Data != null &&
+                    filteredAtomicAnchor.Data.Disconnected;
+
+                var filteredIsDead =
+                    filteredAtomicAnchor != null &&
+                    filteredAtomicAnchor.Data != null &&
+                    filteredAtomicAnchor.Data.IsDead;
+
+                Logger.Info(
+                    $"EVILHACKER_ATOMIC_ANCHOR_RUNTIME_PREDICATE_DIAGNOSTIC_AB_V1 " +
+                    $"Viewer={viewer.PlayerId} Anchor={atomicAnchor.AnchorId} " +
+                    $"RawPresent={rawAtomicAnchor != null} " +
+                    $"RawDataPresent={rawDataPresent} " +
+                    $"RawDisconnected={rawDisconnected} " +
+                    $"RawIsDead={rawIsDead} " +
+                    $"FilteredPresent={filteredAtomicAnchor != null} " +
+                    $"FilteredDataPresent={filteredDataPresent} " +
+                    $"FilteredDisconnected={filteredDisconnected} " +
+                    $"FilteredIsDead={filteredIsDead} " +
+                    $"ViewerMismatch={atomicAnchor.AnchorId != viewer.PlayerId} " +
+                    $"QueuedContains={queuedTargetIds.Contains(atomicAnchor.AnchorId)} " +
+                    $"CanonicalMatches={canonicalMatches} " +
+                    $"CandidateNull={candidate == null} " +
+                    $"AllTargets={allTargets.Count} QueuedRoles={queuedRoles.Count}",
+                    "ClientReadyIntroBarrierAB1");
+
+                if (candidate == null ||
+                    canonicalMatches != 1 ||
+                    atomicAnchor.CanonicalRole is
+                        RoleTypes.Impostor or
+                        RoleTypes.Shapeshifter or
+                        RoleTypes.Viper or
+                        RoleTypes.Phantom ||
+                    atomicAnchor.AnchorId == atomicAnchor.SoleImpostorId)
+                {
+                    Logger.Error(
+                        $"EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4 INVALID_PLAN " +
+                        $"Viewer={viewer.PlayerId} Anchor={atomicAnchor.AnchorId} " +
+                        $"Canonical={atomicAnchor.CanonicalRole} SoleImpostor={atomicAnchor.SoleImpostorId} " +
+                        $"CanonicalMatches={canonicalMatches}",
+                        "ClientReadyIntroBarrierAB1");
+                    return false;
+                }
+            }
+            else
+            {
+                candidate = allTargets.FirstOrDefault(target =>
+                    target.PlayerId != viewer.PlayerId &&
+                    queuedTargetIds.Contains(target.PlayerId) &&
+                    target.Data != null &&
+                    !target.Data.Disconnected &&
+                    !target.Data.IsDead &&
+                    target.Data.Role != null);
+            }
 
             if (candidate == null)
             {
@@ -395,7 +521,7 @@ namespace TownOfHostForE
 
             try
             {
-                sender.StartMessage(viewer.GetClientId());
+                sender.StartMessage(clientId);
 
                 if (!TryAppendClientReadyBarrierSpoof(
                         sender,
@@ -411,26 +537,82 @@ namespace TownOfHostForE
                 RoleTypes? finalSelfRole = null;
                 PlayerControl? self = null;
 
-                // 既存のviewer向けRole送信順を維持する。
-                // selfだけ最後へ移し、candidateだけcanOverride=trueで
-                // roleAssigned=falseを維持する。
-                foreach (var queued in queuedRoles)
+                if (hasAtomicAnchor)
                 {
-                    if (queued.Target == null) continue;
+                    // EvilHacker reproducer: intended sole Impostorを先に通常確定、
+                    // anchor/candidateだけI,trueで未確定にし、残りを送る。
+                    var soleEntryMatches = queuedRoles.Where(item =>
+                        item.Target != null &&
+                        item.Target.PlayerId == atomicAnchor.SoleImpostorId).ToList();
 
-                    if (queued.Target.PlayerId == viewer.PlayerId)
+                    if (soleEntryMatches.Count != 1)
                     {
-                        self = queued.Target;
-                        finalSelfRole = queued.Role;
-                        continue;
+                        Logger.Error(
+                            $"EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4 SOLE_ENTRY_INVALID " +
+                            $"Viewer={viewer.PlayerId} Count={soleEntryMatches.Count}",
+                            "ClientReadyIntroBarrierAB1");
+                        sender.stream.Recycle();
+                        return false;
                     }
+
+                    var soleEntry = soleEntryMatches[0];
+                    AppendClientReadyBarrierSetRole(
+                        sender,
+                        soleEntry.Target,
+                        soleEntry.Role,
+                        canOverride: false);
 
                     AppendClientReadyBarrierSetRole(
                         sender,
-                        queued.Target,
-                        queued.Role,
-                        canOverride:
-                            queued.Target.PlayerId == candidate.PlayerId);
+                        candidate,
+                        RoleTypes.Impostor,
+                        canOverride: true);
+
+                    foreach (var queued in queuedRoles)
+                    {
+                        if (queued.Target == null) continue;
+
+                        if (queued.Target.PlayerId == viewer.PlayerId)
+                        {
+                            self = queued.Target;
+                            finalSelfRole = queued.Role;
+                            continue;
+                        }
+
+                        if (queued.Target.PlayerId == atomicAnchor.SoleImpostorId ||
+                            queued.Target.PlayerId == atomicAnchor.AnchorId)
+                        {
+                            continue;
+                        }
+
+                        AppendClientReadyBarrierSetRole(
+                            sender,
+                            queued.Target,
+                            queued.Role,
+                            canOverride: false);
+                    }
+                }
+                else
+                {
+                    // 既存非EvilHacker barrier経路は従来通り。
+                    foreach (var queued in queuedRoles)
+                    {
+                        if (queued.Target == null) continue;
+
+                        if (queued.Target.PlayerId == viewer.PlayerId)
+                        {
+                            self = queued.Target;
+                            finalSelfRole = queued.Role;
+                            continue;
+                        }
+
+                        AppendClientReadyBarrierSetRole(
+                            sender,
+                            queued.Target,
+                            queued.Role,
+                            canOverride:
+                                queued.Target.PlayerId == candidate.PlayerId);
+                    }
                 }
 
                 if (self == null || !finalSelfRole.HasValue)
@@ -443,20 +625,32 @@ namespace TownOfHostForE
                     return false;
                 }
 
-                // selfを最後に通常SetRole(false)で確定する。
-                // この瞬間、candidateだけroleAssigned=falseだが
-                // viewer上ではDisconnected=trueなのでnative All predicateが成立する。
                 AppendClientReadyBarrierSetRole(
                     sender,
                     self,
                     finalSelfRole.Value,
                     canOverride: false);
 
-                // CoShowIntro開始条件成立後、同一GameDataTo root内で
-                // Host canonical値をそのまま再serializeして即時restoreする。
                 AppendClientReadyBarrierCanonicalRestore(
                     sender,
                     candidate.Data);
+
+                if (hasAtomicAnchor)
+                {
+                    // 同一reliable root内でcanonical RoleBehaviourまでfalseでfinalizeする。
+                    AppendClientReadyBarrierSetRole(
+                        sender,
+                        candidate,
+                        atomicAnchor.CanonicalRole,
+                        canOverride: false);
+
+                    Logger.Info(
+                        $"EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4 PREPARED " +
+                        $"Viewer={viewer.PlayerId} Anchor={candidate.PlayerId} " +
+                        $"Initial={RoleTypes.Impostor}/True Final={atomicAnchor.CanonicalRole}/False " +
+                        $"SoleImpostor={atomicAnchor.SoleImpostorId}",
+                        "ClientReadyIntroBarrierAB1");
+                }
 
                 sender.EndMessage();
 
@@ -512,6 +706,7 @@ namespace TownOfHostForE
                     continue;
                 }
 
+                if (P4SuppressedIntroViewerIds.Contains(viewerId)) continue;
                 var queuedRoles =
                     ClientReadyBarrierQueuedRoles[viewerId];
 
@@ -534,10 +729,14 @@ namespace TownOfHostForE
                 }
                 else
                 {
-                    replacement =
-                        BuildClientReadyBarrierFallbackSender(
+                    if (!TryBuildClientReadyBarrierFallbackSender(
                             viewer,
-                            queuedRoles);
+                            queuedRoles,
+                            out replacement))
+                    {
+                        P4SuppressedIntroViewerIds.Add(viewerId);
+                        continue;
+                    }
 
                     Logger.Error(
                         $"{ClientReadyBarrierMarker} FALLBACK " +
@@ -556,13 +755,15 @@ namespace TownOfHostForE
             PlayerControl seer,
             PlayerControl target,
             RoleTypes role,
-            Dictionary<byte, CustomRpcSender> senders)
+            Dictionary<byte, CustomRpcSender> senders,
+            RoleTypes? canonicalRole = null)
         {
             RecordVanillaIntroRole(
                 seer.PlayerId,
                 target.PlayerId,
-                role);
+                canonicalRole ?? role);
 
+            if (P4SuppressedIntroViewerIds.Contains(seer.PlayerId)) return;
             if (IsClientReadyBarrierViewer(seer))
             {
                 if (!ClientReadyBarrierQueuedRoles.TryGetValue(
@@ -578,10 +779,15 @@ namespace TownOfHostForE
                 return;
             }
 
+            if (!seer.TryGetClientId(out var clientId))
+            {
+                P4SuppressedIntroViewerIds.Add(seer.PlayerId);
+                return;
+            }
             senders[seer.PlayerId].RpcSetRole(
                 target,
                 role,
-                seer.GetClientId());
+                clientId);
         }
 
         [HarmonyPatch]
@@ -621,6 +827,63 @@ namespace TownOfHostForE
             return VanillaIntroRoleMap.TryGetValue((seerId, targetId), out role);
         }
 
+        // PRE_VOTING_FULL_SAFE_NPI_SERIALIZE_HELPER_AB_V19:
+        // Serialize one NetworkedPlayerInfo into an already-targeted sender,
+        // capture the two direct UInt16 role writes, and patch only the wire
+        // bytes. Host Role/RoleWhenAlive/RoleBehaviour objects are untouched.
+        internal static bool TryAppendPreVotingFullSafeNetworkedPlayerInfoAbV19(
+            CustomRpcSender sender,
+            NetworkedPlayerInfo source,
+            RoleTypes wireRole,
+            out int capturedRoleWriteCount)
+        {
+            capturedRoleWriteCount = 0;
+
+            if (sender == null || source == null)
+            {
+                return false;
+            }
+
+            sender.stream.StartMessage(1);
+            sender.stream.WritePacked(source.NetId);
+
+            List<ClientReadyBarrierCapturedUInt16> captured;
+            BeginClientReadyBarrierUInt16Capture(sender.stream);
+            try
+            {
+                source.Serialize(sender.stream, true);
+            }
+            finally
+            {
+                captured = EndClientReadyBarrierUInt16Capture();
+            }
+
+            sender.stream.EndMessage();
+            capturedRoleWriteCount = captured.Count;
+
+            if (captured.Count != 2)
+            {
+                return false;
+            }
+
+            var wireRoleValue = (ushort)wireRole;
+            foreach (var roleWrite in captured)
+            {
+                if (roleWrite.Position < 0 ||
+                    roleWrite.Position + 1 >= sender.stream.Length)
+                {
+                    return false;
+                }
+
+                sender.stream.Buffer[roleWrite.Position] =
+                    (byte)(wireRoleValue & 0xff);
+                sender.stream.Buffer[roleWrite.Position + 1] =
+                    (byte)(wireRoleValue >> 8);
+            }
+
+            return true;
+        }
+
         // 通常死亡時のofficial Ghost Role変化だけを追従する。
         // キーが存在しない場合は新規推測値を作らない。
         internal static void UpdateExileDisplayRoleViewPermanent(
@@ -636,16 +899,24 @@ namespace TownOfHostForE
         public static void Prefix()
         {
             if (!AmongUsClient.Instance.AmHost) return;
+            TownOfHostForE.Roles.Impostor.EvilHacker.CaptureSimpleAdminEnabledAtGameStart();
+            P4SuppressedIntroViewerIds.Clear();
             VanillaIntroRoleMap.Clear();
             ClientReadyBarrierQueuedRoles.Clear();
             ClientReadyBarrierCandidateByViewer.Clear();
+            ClientReadyBarrierAtomicAnchorByViewerABV4.Clear();
             //CustomRpcSenderとRpcSetRoleReplacerの初期化
             Dictionary<byte, CustomRpcSender> senders = new();
             foreach (var pc in Main.AllPlayerControls)
             {
                 senders[pc.PlayerId] = new CustomRpcSender($"{pc.name}'s SetRole Sender", SendOption.Reliable, false);
                 if (pc.PlayerId != 0)
-                    senders[pc.PlayerId].StartMessage(pc.GetClientId());
+                {
+                    if (pc.TryGetClientId(out var clientId))
+                        senders[pc.PlayerId].StartMessage(clientId);
+                    else
+                        P4SuppressedIntroViewerIds.Add(pc.PlayerId);
+                }
             }
             RpcSetRoleReplacer.StartReplace(senders);
 
@@ -655,7 +926,7 @@ namespace TownOfHostForE
 
             if (Options.CurrentGameMode != CustomGameMode.HideAndSeek)
             {
-                RoleTypes[] RoleTypesList = { RoleTypes.Scientist, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.Shapeshifter, RoleTypes.Phantom };
+                RoleTypes[] RoleTypesList = { RoleTypes.Scientist, RoleTypes.Judge, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.Shapeshifter, RoleTypes.Viper, RoleTypes.Phantom };
                 foreach (var roleTypes in RoleTypesList)
                 {
                     var roleOpt = Main.NormalOptions.roleOptions;
@@ -676,6 +947,10 @@ namespace TownOfHostForE
                     PlayerControl.LocalPlayer.RpcSetRole(RoleTypes.Crewmate);
                     PlayerControl.LocalPlayer.Data.IsDead = true;
                 }
+
+                // MASSU_ORIGINAL_ROLE_ASSIGN_AB_V1
+                MassuOriginalRoleAssignmentABV1.PrepareDesyncPlan(AllPlayers);
+
                 Dictionary<(byte, byte), RoleTypes> rolesMap = new();
 
                 foreach (var (role, info) in CustomRoleManager.AllRolesInfo)
@@ -721,16 +996,23 @@ namespace TownOfHostForE
         internal static System.Collections.IEnumerator CompleteRoleSelectionDeferred(
             float intervalSeconds = 0.3f)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "ROLE_SELECTION_DEFERRED_ENTER",
+                $"Interval={intervalSeconds} Players={Main.AllPlayerControls.Count()}");
             yield return RpcSetRoleReplacer.SendAllDeferred(
                 intervalSeconds
             );
 
+            CriticalStartFlowPacketDiagnostic.Mark("ROLE_SELECTION_DEFERRED_SEND_RETURNED");
             RpcSetRoleReplacer.Cleanup();
+            CriticalStartFlowPacketDiagnostic.Mark("ROLE_SELECTION_DEFERRED_CLEANUP_RETURNED");
             FinalizeRoleSelection();
+            CriticalStartFlowPacketDiagnostic.Mark("ROLE_SELECTION_DEFERRED_FINALIZE_RETURNED");
         }
 
         public static void FinalizeRoleSelection()
         {
+            CriticalStartFlowPacketDiagnostic.Mark("FINALIZE_ROLE_SELECTION_ENTER");
             //Utils.ApplySuffix();
 
             var rand = IRandom.Instance;
@@ -770,6 +1052,10 @@ namespace TownOfHostForE
                         Scientists.Add(pc);
                         role = CustomRoles.Scientist;
                         break;
+                    case RoleTypes.Judge:
+                        // NATIVE_WRAPPER_SLOT_AB_V1: Judge is already the final native-backed main role.
+                        role = CustomRoles.NormalJudge;
+                        break;
                     case RoleTypes.Engineer:
                         Engineers.Add(pc);
                         role = CustomRoles.Engineer;
@@ -782,6 +1068,10 @@ namespace TownOfHostForE
                         Shapeshifters.Add(pc);
                         role = CustomRoles.Shapeshifter;
                         break;
+                    case RoleTypes.Viper:
+                        // NATIVE_WRAPPER_SLOT_AB_V1: Viper is already the final native-backed main role.
+                        role = CustomRoles.NormalViper;
+                        break;
                     case RoleTypes.Tracker:
                         trackers.Add(pc);
                         role = CustomRoles.Tracker;
@@ -791,8 +1081,24 @@ namespace TownOfHostForE
                         role = CustomRoles.Noisemaker;
                         break;
                     case RoleTypes.Phantom:
-                        phantoms.Add(pc);
-                        role = CustomRoles.Phantom;
+                        if (pc.AmOwner &&
+                            TryGetCommonStandardPlannedRoleABV5(
+                                pc.PlayerId,
+                                out var plannedPhantomRole) &&
+                            plannedPhantomRole == CustomRoles.EvilHacker &&
+                            TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart)
+                        {
+                            // EVILHACKER_INITIAL_OWNER_NATIVE_PHANTOM_AB_V4:
+                            // Host ownerだけnative PhantomでもCustomRole poolはImpostorとしてEvilHackerへ戻す。
+                            Impostors.Add(pc);
+                            role = CustomRoles.Impostor;
+                        }
+                        else
+                        {
+                            phantoms.Add(pc);
+                            // NATIVE_WRAPPER_SLOT_AB_V1: Phantom is already the final native-backed main role.
+                            role = CustomRoles.NormalPhantom;
+                        }
                         break;
                     default:
                         Logger.SendInGame(string.Format(GetString("Error.InvalidRoleAssignment"), pc?.Data?.PlayerName));
@@ -850,6 +1156,9 @@ namespace TownOfHostForE
                 foreach (var role in CustomRolesHelper.AllStandardRoles)
                 {
                     if (role.IsVanilla()) continue;
+                    // NATIVE_WRAPPER_SLOT_AB_V1:
+                    // Judge/Phantom/Viper are materialized by the native role-selection slot itself.
+                    if (role is CustomRoles.NormalJudge or CustomRoles.NormalPhantom or CustomRoles.NormalViper) continue;
                     //if (role is CustomRoles.HASTroll or CustomRoles.HASFox or CustomRoles.BAKURETSUKI) continue;
                     //if (CustomRoleManager.GetRoleInfo(role) is SimpleRoleInfo info && info.RequireResetCam) continue;
                     if (CustomRoleManager.GetRoleInfo(role)?.IsDesyncImpostor == true) continue;
@@ -919,6 +1228,8 @@ namespace TownOfHostForE
                     {
                         foreach (var Addon in Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x.IsAddOn()))
                         {
+                            // GAMBLER_MASTER_OFF_ASSIGNMENT_AB_V1: 0% is an absolute master OFF
+                            if (Addon == CustomRoles.Gambler && !TownOfHostForE.Roles.AddOns.NotCrew.Gambler.IsAssignmentEnabled) continue;
                             // GOD_GAMBLER_DIRECT_GUARD_PERMANENT
                             if (pc.Is(CustomRoles.God) && Addon == CustomRoles.Gambler) continue;
                             if (Options.AddOnRoleOptions.TryGetValue((pc.GetCustomRole(), Addon), out var option) && option.GetBool())
@@ -949,7 +1260,7 @@ namespace TownOfHostForE
                     }
                 }
 
-                RoleTypes[] RoleTypesList = { RoleTypes.Scientist, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.Shapeshifter, RoleTypes.Phantom};
+                RoleTypes[] RoleTypesList = { RoleTypes.Scientist, RoleTypes.Judge, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.Shapeshifter, RoleTypes.Viper, RoleTypes.Phantom};
                 foreach (var roleTypes in RoleTypesList)
                 {
                     var roleOpt = Main.NormalOptions.roleOptions;
@@ -977,9 +1288,19 @@ namespace TownOfHostForE
             }
             */
 
+            // MASSU_ORIGINAL_ROLE_ASSIGN_AB_V1
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("ROLE_STATE_BEFORE_COMMIT");
+            MassuOriginalRoleAssignmentABV1.CommitCurrentRoles();
+            CriticalStartFlowPacketDiagnostic.MarkRoleCommit();
+            StartFlowReadiness.MarkRoleCommitted();
+            CriticalStartFlowPacketDiagnostic.MarkAllPlayers("ROLE_STATE_AFTER_COMMIT");
+
             Utils.CountAlivePlayers(true);
+            CriticalStartFlowPacketDiagnostic.Mark("SYNC_ALL_SETTINGS_CALL");
             Utils.SyncAllSettings();
+            CriticalStartFlowPacketDiagnostic.Mark("SYNC_ALL_SETTINGS_RETURNED");
             SetColorPatch.IsAntiGlitchDisabled = false;
+            CriticalStartFlowPacketDiagnostic.Mark("FINALIZE_ROLE_SELECTION_RETURN");
         }
 
         private static bool AssignDesyncRole(CustomRoles role, List<PlayerControl> AllPlayers, Dictionary<byte, CustomRpcSender> senders, Dictionary<(byte, byte), RoleTypes> rolesMap, RoleTypes BaseRole, RoleTypes hostBaseRole = RoleTypes.Crewmate,bool IsImpostorRole = false)
@@ -1001,7 +1322,9 @@ namespace TownOfHostForE
             for (var i = 0; i < role.GetRealCount(); i++)
             {
                 if (AllPlayers.Count <= 0) break;
-                var player = AllPlayers[rand.Next(0, AllPlayers.Count)];
+                var player =
+                    MassuOriginalRoleAssignmentABV1.TakeDesyncPlannedPlayer(role, AllPlayers) ??
+                    AllPlayers[rand.Next(0, AllPlayers.Count)];
                 if (role.IsImpostor() ||
                     role.IsNeutral() ||
                     role.IsAnimals())
@@ -1079,6 +1402,405 @@ namespace TownOfHostForE
             }
         }
 
+        // EVILHACKER_COMMON_STANDARD_PREPLAN_AB_V5
+        // Defaultでは従来FinalizeRoleSelectionが消費していたmain-role RNGを
+        // Release直前に同じrole順/pool順で1回だけ消費し、Finalizeではplanをcommitする。
+        private static readonly Dictionary<byte, CustomRoles>
+            DefaultStandardMainPlanABV5 = new();
+
+        private static readonly Dictionary<CustomRoles, Queue<byte>>
+            DefaultStandardOrderedPlayerPlanABV5 = new();
+
+        private enum DefaultStandardPlanStateABV5
+        {
+            Unavailable,
+            Building,
+            Ready,
+            Fatal,
+        }
+
+        private static DefaultStandardPlanStateABV5
+            DefaultStandardPlanState = DefaultStandardPlanStateABV5.Unavailable;
+
+        private const string CommonStandardPlanMarkerABV5 =
+            "EVILHACKER_COMMON_STANDARD_PREPLAN_AB_V5";
+
+        private static bool TryGetCommonStandardPlannedRoleABV5(
+            byte playerId,
+            out CustomRoles role)
+        {
+            if (MassuOriginalRoleAssignmentABV1.TryGetStandardPlannedRole(
+                    playerId,
+                    out role))
+            {
+                return true;
+            }
+
+            role = CustomRoles.NotAssigned;
+            return DefaultStandardPlanState == DefaultStandardPlanStateABV5.Ready &&
+                   DefaultStandardMainPlanABV5.TryGetValue(playerId, out role);
+        }
+
+        private static InvalidOperationException DefaultStandardPlanViolationABV5(
+            string reason)
+        {
+            DefaultStandardPlanState = DefaultStandardPlanStateABV5.Fatal;
+            Logger.Error(reason, CommonStandardPlanMarkerABV5);
+            return new InvalidOperationException(
+                $"{CommonStandardPlanMarkerABV5}: {reason}");
+        }
+
+        private static PlayerControl? TakeCommonStandardPlannedPlayerABV5(
+            CustomRoles role,
+            List<PlayerControl> candidates)
+        {
+            var massuPlayer =
+                MassuOriginalRoleAssignmentABV1.TakeStandardPlannedPlayer(
+                    role,
+                    candidates);
+
+            if (massuPlayer != null)
+            {
+                return massuPlayer;
+            }
+
+            // Unavailableだけが、従来random fallbackへ戻ってよい状態。
+            // Building/Ready/Fatalは一度common plan経路へ入った状態なのでfail-closedする。
+            if (DefaultStandardPlanState == DefaultStandardPlanStateABV5.Unavailable)
+            {
+                return null;
+            }
+
+            if (DefaultStandardPlanState != DefaultStandardPlanStateABV5.Ready ||
+                candidates == null ||
+                candidates.Count == 0)
+            {
+                throw DefaultStandardPlanViolationABV5(
+                    $"PLAN_NOT_SELECTABLE State={DefaultStandardPlanState} " +
+                    $"Role={role} Candidates={candidates?.Count ?? 0}");
+            }
+
+            if (!DefaultStandardOrderedPlayerPlanABV5.TryGetValue(
+                    role,
+                    out var orderedPlayerIds) ||
+                orderedPlayerIds.Count == 0)
+            {
+                throw DefaultStandardPlanViolationABV5(
+                    $"PLAN_SELECTOR_QUEUE_MISS Role={role} Candidates={candidates.Count}");
+            }
+
+            var plannedPlayerId = orderedPlayerIds.Dequeue();
+            var plannedPlayer = candidates.FirstOrDefault(candidate =>
+                candidate != null && candidate.PlayerId == plannedPlayerId);
+
+            if (plannedPlayer == null ||
+                !DefaultStandardMainPlanABV5.TryGetValue(
+                    plannedPlayerId,
+                    out var plannedRole) ||
+                plannedRole != role)
+            {
+                throw DefaultStandardPlanViolationABV5(
+                    $"PLAN_SELECTOR_MISS Role={role} PlannedPlayerId={plannedPlayerId} " +
+                    $"Candidates={candidates.Count}");
+            }
+
+            return plannedPlayer;
+        }
+
+        private static void PlanDefaultStandardRoleFromListABV5(
+            CustomRoles role,
+            List<PlayerControl> players,
+            IRandom random)
+        {
+            if (players == null || players.Count == 0) return;
+
+            var count =
+                Math.Clamp(
+                    role.GetRealCount(),
+                    0,
+                    players.Count);
+
+            if (count <= 0)
+            {
+                return;
+            }
+
+            if (!DefaultStandardOrderedPlayerPlanABV5.TryGetValue(
+                    role,
+                    out var orderedPlayerIds))
+            {
+                orderedPlayerIds = new Queue<byte>();
+                DefaultStandardOrderedPlayerPlanABV5[role] = orderedPlayerIds;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                if (players.Count <= 0)
+                {
+                    throw DefaultStandardPlanViolationABV5(
+                        $"PLAN_POOL_EXHAUSTED Role={role} Index={i} Count={count}");
+                }
+
+                var player =
+                    players[random.Next(0, players.Count)];
+
+                if (player == null ||
+                    DefaultStandardMainPlanABV5.ContainsKey(player.PlayerId))
+                {
+                    throw DefaultStandardPlanViolationABV5(
+                        $"PLAN_DUPLICATE_SELECTION Role={role} Index={i}");
+                }
+
+                DefaultStandardMainPlanABV5[player.PlayerId] = role;
+                orderedPlayerIds.Enqueue(player.PlayerId);
+                players.Remove(player);
+            }
+        }
+
+        private static void PrepareDefaultStandardPlanABV5(
+            List<(PlayerControl, RoleTypes)> storagedData)
+        {
+            DefaultStandardMainPlanABV5.Clear();
+            DefaultStandardOrderedPlayerPlanABV5.Clear();
+            DefaultStandardPlanState = DefaultStandardPlanStateABV5.Unavailable;
+
+            if (Options.CurrentGameMode != CustomGameMode.Standard ||
+                Options.IsMassuOriginalRoleAssigning ||
+                storagedData == null ||
+                storagedData.Count == 0)
+            {
+                return;
+            }
+
+            var expectedPlayers =
+                Main.AllPlayerControls
+                    .Where(player =>
+                    {
+                        if (player == null || player.Data == null)
+                        {
+                            return false;
+                        }
+
+                        var state =
+                            PlayerState.GetByPlayerId(player.PlayerId);
+
+                        return state != null &&
+                               state.MainRole == CustomRoles.NotAssigned;
+                    })
+                    .ToList();
+
+            if (expectedPlayers.Count == 0)
+            {
+                return;
+            }
+
+            if (expectedPlayers
+                    .GroupBy(player => player.PlayerId)
+                    .Any(group => group.Count() != 1))
+            {
+                Logger.Error(
+                    $"DUPLICATE_EXPECTED_PLAYER Players={expectedPlayers.Count}",
+                    CommonStandardPlanMarkerABV5);
+                return;
+            }
+
+            var nativeRoleByPlayer =
+                new Dictionary<byte, RoleTypes>();
+
+            var expectedIds =
+                expectedPlayers
+                    .Select(player => player.PlayerId)
+                    .ToHashSet();
+
+            foreach (var (player, nativeRole) in storagedData)
+            {
+                if (player == null ||
+                    !expectedIds.Contains(player.PlayerId))
+                {
+                    continue;
+                }
+
+                if (nativeRoleByPlayer.ContainsKey(player.PlayerId))
+                {
+                    Logger.Error(
+                        $"DUPLICATE_NATIVE PlayerId={player.PlayerId}",
+                        CommonStandardPlanMarkerABV5);
+                    return;
+                }
+
+                nativeRoleByPlayer[player.PlayerId] = nativeRole;
+            }
+
+            if (nativeRoleByPlayer.Count != expectedPlayers.Count)
+            {
+                Logger.Error(
+                    $"NATIVE_COUNT_MISMATCH Expected={expectedPlayers.Count} Actual={nativeRoleByPlayer.Count}",
+                    CommonStandardPlanMarkerABV5);
+                return;
+            }
+
+            List<PlayerControl> Crewmates = new();
+            List<PlayerControl> Impostors = new();
+            List<PlayerControl> Scientists = new();
+            List<PlayerControl> Engineers = new();
+            List<PlayerControl> GuardianAngels = new();
+            List<PlayerControl> Shapeshifters = new();
+            List<PlayerControl> trackers = new();
+            List<PlayerControl> noisemakers = new();
+            List<PlayerControl> phantoms = new();
+
+            foreach (var player in expectedPlayers)
+            {
+                if (!nativeRoleByPlayer.TryGetValue(
+                        player.PlayerId,
+                        out var nativeRole))
+                {
+                    return;
+                }
+
+                switch (nativeRole)
+                {
+                    case RoleTypes.Crewmate:
+                        Crewmates.Add(player);
+                        break;
+
+                    case RoleTypes.Impostor:
+                        Impostors.Add(player);
+                        break;
+
+                    case RoleTypes.Scientist:
+                        Scientists.Add(player);
+                        break;
+
+                    case RoleTypes.Judge:
+                        // FinalizeRoleSelectionではNormalJudgeとして確定し、poolへ戻さない。
+                        break;
+
+                    case RoleTypes.Engineer:
+                        Engineers.Add(player);
+                        break;
+
+                    case RoleTypes.GuardianAngel:
+                        GuardianAngels.Add(player);
+                        break;
+
+                    case RoleTypes.Shapeshifter:
+                        Shapeshifters.Add(player);
+                        break;
+
+                    case RoleTypes.Viper:
+                        // FinalizeRoleSelectionではNormalViperとして確定し、poolへ戻さない。
+                        break;
+
+                    case RoleTypes.Tracker:
+                        trackers.Add(player);
+                        break;
+
+                    case RoleTypes.Noisemaker:
+                        noisemakers.Add(player);
+                        break;
+
+                    case RoleTypes.Phantom:
+                        phantoms.Add(player);
+                        break;
+
+                    default:
+                        Logger.Error(
+                            $"UNSUPPORTED_NATIVE PlayerId={player.PlayerId} Role={nativeRole}",
+                            CommonStandardPlanMarkerABV5);
+                        return;
+                }
+            }
+
+            var poolPlayerIds = new[]
+                {
+                    Crewmates,
+                    Impostors,
+                    Scientists,
+                    Engineers,
+                    GuardianAngels,
+                    Shapeshifters,
+                    trackers,
+                    noisemakers,
+                    phantoms,
+                }
+                .SelectMany(pool => pool)
+                .Select(player => player.PlayerId)
+                .ToArray();
+
+            if (poolPlayerIds.Length != poolPlayerIds.Distinct().Count())
+            {
+                Logger.Error(
+                    $"DUPLICATE_POOL_PLAYER Entries={poolPlayerIds.Length}",
+                    CommonStandardPlanMarkerABV5);
+                return;
+            }
+
+            var random = IRandom.Instance;
+            if (random == null)
+            {
+                Logger.Error("RANDOM_INSTANCE_NULL", CommonStandardPlanMarkerABV5);
+                return;
+            }
+
+            // ここから先はmain-role RNGを消費し得るため、異常時は従来randomへ戻さない。
+            DefaultStandardPlanState = DefaultStandardPlanStateABV5.Building;
+
+            foreach (var role in CustomRolesHelper.AllStandardRoles)
+            {
+                if (role.IsVanilla()) continue;
+
+                // NATIVE_WRAPPER_SLOT_AB_V1 と同じ除外。
+                if (role is CustomRoles.NormalJudge or
+                    CustomRoles.NormalPhantom or
+                    CustomRoles.NormalViper)
+                {
+                    continue;
+                }
+
+                if (CustomRoleManager.GetRoleInfo(role)?.IsDesyncImpostor == true)
+                    continue;
+
+                if (role == CustomRoles.Opportunist &&
+                    Opportunist.OptionCanKill.GetBool())
+                    continue;
+
+                if (role == CustomRoles.StrayWolf && AssignedStrayWolf)
+                    continue;
+
+                if (role is not CustomRoles.Opportunist and
+                    not CustomRoles.StrayWolf and
+                    not CustomRoles.Egoist &&
+                    CustomRoleManager.GetRoleInfo(role)?.IsDesyncImpostor == true)
+                    continue;
+
+                var baseRoleTypes =
+                    role.GetRoleTypes() switch
+                    {
+                        RoleTypes.Impostor => Impostors,
+                        RoleTypes.Shapeshifter => Shapeshifters,
+                        RoleTypes.Phantom => phantoms,
+                        RoleTypes.Scientist => Scientists,
+                        RoleTypes.Engineer => Engineers,
+                        RoleTypes.Noisemaker => noisemakers,
+                        RoleTypes.Tracker => trackers,
+                        RoleTypes.GuardianAngel => GuardianAngels,
+                        _ => Crewmates,
+                    };
+
+                PlanDefaultStandardRoleFromListABV5(
+                    role,
+                    baseRoleTypes,
+                    random);
+            }
+
+            DefaultStandardPlanState = DefaultStandardPlanStateABV5.Ready;
+
+            Logger.Info(
+                $"PLAN_READY Algorithm=Default Players={expectedPlayers.Count} CustomAssignments={DefaultStandardMainPlanABV5.Count} RNG=EXACT_ONCE",
+                CommonStandardPlanMarkerABV5);
+        }
+
         private static List<PlayerControl> AssignCustomRolesFromList(CustomRoles role, List<PlayerControl> players, int RawCount = -1)
         {
             if (players == null || players.Count <= 0) return null;
@@ -1090,7 +1812,17 @@ namespace TownOfHostForE
             SetColorPatch.IsAntiGlitchDisabled = true;
             for (var i = 0; i < count; i++)
             {
-                var player = players[rand.Next(0, players.Count)];
+                var player = TakeCommonStandardPlannedPlayerABV5(role, players);
+                if (player == null)
+                {
+                    if (DefaultStandardPlanState != DefaultStandardPlanStateABV5.Unavailable)
+                    {
+                        throw DefaultStandardPlanViolationABV5(
+                            $"PLAN_RANDOM_FALLBACK_BLOCKED Role={role} Index={i}");
+                    }
+
+                    player = players[rand.Next(0, players.Count)];
+                }
                 AssignedPlayers.Add(player);
                 if (role.IsImpostor() ||
                     role.IsNeutral() ||
@@ -1195,6 +1927,9 @@ namespace TownOfHostForE
         private static List<PlayerControl> AssignGamblerByFaction(int RawCount = -1)
         {
             _ = RawCount;
+
+            // GAMBLER_MASTER_OFF_ASSIGNMENT_AB_V1: hidden retained faction values must never assign at 0%
+            if (!TownOfHostForE.Roles.AddOns.NotCrew.Gambler.IsAssignmentEnabled) return null!;
 
             var candidates = Main.AllPlayerControls
                 .Where(pc =>
@@ -1326,57 +2061,322 @@ namespace TownOfHostForE
                 }
                 else return true;
             }
+            private const string CrewNativeInitialImpostorAnchorAbV11Marker =
+                "CREW_NATIVE_INITIAL_IMPOSTOR_ANCHOR_AB_V11_ONLINE";
+
+            private static bool IsImpostorFamilyAbV11(RoleTypes role)
+            {
+                return role is RoleTypes.Impostor or RoleTypes.Shapeshifter or RoleTypes.Viper or RoleTypes.Phantom;
+            }
+
+            private static void ApplyCrewNativeInitialImpostorAnchorAbV11()
+            {
+                // Online A/B only. Local behavior is intentionally unchanged.
+                if (!GameStates.IsOnlineGame) return;
+
+                foreach (var viewerId in
+                         ClientReadyBarrierQueuedRoles.Keys
+                             .OrderBy(id => id)
+                             .ToArray())
+                {
+                    var viewer = Utils.GetPlayerById(viewerId);
+                    if (viewer == null || !IsClientReadyBarrierViewer(viewer))
+                        continue;
+
+                    if (!ClientReadyBarrierQueuedRoles.TryGetValue(
+                            viewerId,
+                            out var queuedRoles) ||
+                        queuedRoles == null ||
+                        queuedRoles.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var impostorEntries =
+                        Main.AllPlayerControls
+                            .Where(target =>
+                                target != null &&
+                                VanillaIntroRoleMap.TryGetValue(
+                                    (viewerId, target.PlayerId),
+                                    out var mappedRole) &&
+                                IsImpostorFamilyAbV11(mappedRole))
+                            .OrderBy(target => target.PlayerId)
+                            .ToList();
+
+                    // A/B v11 is deliberately narrow:
+                    // exactly one native Impostor-family target exists,
+                    // and it is someone other than the Vanilla viewer.
+                    // Impostor-replacement viewers whose sole Impostor is self are untouched.
+                    if (impostorEntries.Count != 1 ||
+                        impostorEntries[0].PlayerId == viewerId)
+                    {
+                        Logger.Info(
+                            $"Stage=ANCHOR_NOT_REQUIRED | ViewerId={viewerId} | " +
+                            $"ClientId={viewer.GetClientId()} | ImpostorEntries={impostorEntries.Count} | " +
+                            $"SoleImpostorId={(impostorEntries.Count == 1 ? impostorEntries[0].PlayerId : byte.MaxValue)}",
+                            CrewNativeInitialImpostorAnchorAbV11Marker);
+                        continue;
+                    }
+
+                    var soleImpostor = impostorEntries[0];
+
+                    // HOST_OWNER_SOLE_IMPOSTOR_INITIAL_ANCHOR_PERMANENT:
+                    // Keep each Vanilla viewer's native topology stable when the sole
+                    // native Impostor-family target is a MOD client, including the host owner.
+                    // Vanilla-sole-Impostor cases remain untouched.
+                    if (!soleImpostor.IsModClient())
+                    {
+                        Logger.Info(
+                            $"Stage=REMOTE_MOD_SOLE_IMPOSTOR_NOT_REQUIRED | ViewerId={viewerId} | " +
+                            $"ClientId={viewer.GetClientId()} | SoleImpostorId={soleImpostor.PlayerId} | " +
+                            $"SoleImpostorIsOwner={soleImpostor.AmOwner} | SoleImpostorIsMod={soleImpostor.IsModClient()}",
+                            "ZERO_NATIVE_IMPOSTOR_REMOTE_MOD_INITIAL_ANCHOR_AB_V24");
+                        continue;
+                    }
+
+                    var anchorIndex = -1;
+                    var fallbackIndex = -1;
+
+                    for (var i = 0; i < queuedRoles.Count; i++)
+                    {
+                        var queued = queuedRoles[i];
+                        var target = queued.Target;
+                        if (target == null ||
+                            target.Data == null ||
+                            target.Data.Disconnected ||
+                            target.PlayerId == viewerId ||
+                            target.PlayerId == soleImpostor.PlayerId ||
+                            IsImpostorFamilyAbV11(queued.Role))
+                        {
+                            continue;
+                        }
+
+                        if (fallbackIndex < 0)
+                            fallbackIndex = i;
+
+                        if (DesyncImpostorList != null &&
+                            DesyncImpostorList.Contains(target.PlayerId))
+                        {
+                            anchorIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (anchorIndex < 0)
+                        anchorIndex = fallbackIndex;
+
+                    if (anchorIndex < 0)
+                    {
+                        Logger.Info(
+                            $"Stage=ANCHOR_NO_TARGET | ViewerId={viewerId} | " +
+                            $"ClientId={viewer.GetClientId()} | SoleImpostorId={soleImpostor.PlayerId}",
+                            CrewNativeInitialImpostorAnchorAbV11Marker);
+                        continue;
+                    }
+
+                    var anchorEntry = queuedRoles[anchorIndex];
+                    var anchor = anchorEntry.Target;
+                    var previousRole = anchorEntry.Role;
+
+                    Logger.Info(
+                        $"Stage=REMOTE_MOD_SOLE_IMPOSTOR_ANCHOR_ARMED | ViewerId={viewerId} | " +
+                        $"ClientId={viewer.GetClientId()} | SoleImpostorId={soleImpostor.PlayerId} | " +
+                        $"AnchorId={anchor.PlayerId} | PreviousRole={previousRole} | AnchorRole={RoleTypes.Impostor}",
+                        "ZERO_NATIVE_IMPOSTOR_REMOTE_MOD_INITIAL_ANCHOR_AB_V24");
+
+                    var isPlannedEvilHackerAtomic =
+                        TryGetCommonStandardPlannedRoleABV5(
+                            soleImpostor.PlayerId,
+                            out var plannedSoleRole) &&
+                        plannedSoleRole == CustomRoles.EvilHacker &&
+                        TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart;
+
+                    if (isPlannedEvilHackerAtomic)
+                    {
+                        // EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4:
+                        // queued roleとpermanent mapはcanonicalのまま保持。
+                        // fake I,true / canonical,false はbarrier builder内だけで同一rootに構築する。
+                        ClientReadyBarrierAtomicAnchorByViewerABV4[viewerId] =
+                            (anchor.PlayerId, previousRole, soleImpostor.PlayerId);
+
+                        Logger.Info(
+                            $"EVILHACKER_ATOMIC_ANCHOR_RESTORE_AB_V4 PLAN " +
+                            $"Viewer={viewerId} ClientId={viewer.GetClientId()} " +
+                            $"SoleImpostor={soleImpostor.PlayerId} Anchor={anchor.PlayerId} " +
+                            $"Canonical={previousRole}",
+                            CrewNativeInitialImpostorAnchorAbV11Marker);
+                    }
+                    else
+                    {
+                        // EVILHACKER_COMMON_PREPLAN_AB_V5:
+                        // 非EvilHackerもv3C同様、Fake anchorはqueue/wire-only。
+                        // VanillaIntroRoleMapはcanonical previousRoleを維持する。
+                        queuedRoles[anchorIndex] =
+                            (anchor, RoleTypes.Impostor);
+
+                        Logger.Info(
+                            $"Stage=INITIAL_ANCHOR_SET | ViewerId={viewerId} | " +
+                            $"ClientId={viewer.GetClientId()} | SoleImpostorId={soleImpostor.PlayerId} | " +
+                            $"AnchorId={anchor.PlayerId} | PreviousRole={previousRole} | " +
+                            $"AnchorRole={RoleTypes.Impostor} | QueuedRoles={queuedRoles.Count}",
+                            CrewNativeInitialImpostorAnchorAbV11Marker);
+                    }
+                }
+            }
             public static void Release()
             {
+                CriticalStartFlowPacketDiagnostic.Mark("ROLE_BUNDLE_RELEASE_ENTER");
+                // MASSU_ORIGINAL_ROLE_ASSIGN_AB_V1
+                MassuOriginalRoleAssignmentABV1.PrepareStandardPlan(StoragedData);
+                PrepareDefaultStandardPlanABV5(StoragedData);
+
                 foreach (var (player, role) in StoragedData)
                 {
-                    //ホスト視点は即確定
-                    player.StartCoroutine(player.CoSetRole(role, false));
+                    if (player == null) continue;
 
-                    var impostorRole = role is RoleTypes.Impostor or RoleTypes.Shapeshifter or RoleTypes.Phantom;
+                    var isPlannedEvilHacker =
+                        TryGetCommonStandardPlannedRoleABV5(
+                            player.PlayerId,
+                            out var plannedRole) &&
+                        plannedRole == CustomRoles.EvilHacker;
+                    var initialOwnerNativePhantom =
+                        isPlannedEvilHacker &&
+                        TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart;
+                    var canonicalRole = isPlannedEvilHacker
+                        ? RoleTypes.Impostor
+                        : role;
+
+                    // Host owner自身は最初のlocal latchそのものをPhantom,falseにする。
+                    var localRole =
+                        initialOwnerNativePhantom && player.AmOwner
+                            ? RoleTypes.Phantom
+                            : role;
+                    player.StartCoroutine(player.CoSetRole(localRole, false));
+
+                    if (isPlannedEvilHacker && PlayerControl.LocalPlayer != null)
+                    {
+                        Logger.Info(
+                            $"EVILHACKER_NATIVE_ROLE_PLAN PlayerId={player.PlayerId} " +
+                            $"ClientId={player.GetClientId()} OwnerMod={player.IsModClient()} " +
+                            $"SimpleAdminEnabled={TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart} " +
+                            $"ViewerId={PlayerControl.LocalPlayer.PlayerId} " +
+                            $"ViewerClientId={PlayerControl.LocalPlayer.GetClientId()} " +
+                            $"IsOwnerViewer={PlayerControl.LocalPlayer.PlayerId == player.PlayerId} " +
+                            $"NativeRole={localRole} CanonicalRole={canonicalRole}",
+                            "EvilHacker");
+                    }
+
+                    var impostorRole = role is RoleTypes.Impostor or RoleTypes.Shapeshifter or RoleTypes.Viper or RoleTypes.Phantom;
                     if (impostorRole && DesyncImpostorList.Count != 0)
                     {
                         foreach (var seer in Main.AllPlayerControls)
                         {
                             if (seer.PlayerId == 0) continue;
-                            var assignRole = DesyncImpostorList.Contains(seer.PlayerId) ? RoleTypes.Scientist : role;
+                            var assignRole = DesyncImpostorList.Contains(seer.PlayerId)
+                                ? RoleTypes.Scientist
+                                : role;
+
+                            if (initialOwnerNativePhantom &&
+                                seer.PlayerId == player.PlayerId)
+                            {
+                                assignRole = RoleTypes.Phantom;
+                            }
+
+                            if (isPlannedEvilHacker)
+                            {
+                                Logger.Info(
+                                    $"EVILHACKER_NATIVE_ROLE_PLAN PlayerId={player.PlayerId} " +
+                                    $"ClientId={player.GetClientId()} OwnerMod={player.IsModClient()} " +
+                                    $"SimpleAdminEnabled={TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart} " +
+                                    $"ViewerId={seer.PlayerId} ViewerClientId={seer.GetClientId()} " +
+                                    $"IsOwnerViewer={seer.PlayerId == player.PlayerId} " +
+                                    $"NativeRole={assignRole} CanonicalRole={canonicalRole}",
+                                    "EvilHacker");
+                            }
+
                             QueueOrSendVanillaIntroRole(
                                 seer,
                                 player,
                                 assignRole,
-                                senders);
+                                senders,
+                                initialOwnerNativePhantom && seer.PlayerId == player.PlayerId
+                                    ? canonicalRole
+                                    : null);
                         }
                     }
                     else
                     {
                         // ROLE_DISPATCH_TARGETED_PERMANENT
-                        // 通常Roleを非ホスト参加者ごとのtargeted senderへ送信
                         foreach (var seer in Main.AllPlayerControls)
                         {
                             if (seer.AmOwner) continue;
+
+                            var roleForViewer = role;
+                            if (initialOwnerNativePhantom &&
+                                seer.PlayerId == player.PlayerId)
+                            {
+                                roleForViewer = RoleTypes.Phantom;
+                            }
+
+                            if (isPlannedEvilHacker)
+                            {
+                                Logger.Info(
+                                    $"EVILHACKER_NATIVE_ROLE_PLAN PlayerId={player.PlayerId} " +
+                                    $"ClientId={player.GetClientId()} OwnerMod={player.IsModClient()} " +
+                                    $"SimpleAdminEnabled={TownOfHostForE.Roles.Impostor.EvilHacker.SimpleAdminEnabledAtGameStart} " +
+                                    $"ViewerId={seer.PlayerId} ViewerClientId={seer.GetClientId()} " +
+                                    $"IsOwnerViewer={seer.PlayerId == player.PlayerId} " +
+                                    $"NativeRole={roleForViewer} CanonicalRole={canonicalRole}",
+                                    "EvilHacker");
+                            }
+
                             QueueOrSendVanillaIntroRole(
                                 seer,
                                 player,
-                                role,
-                                senders);
+                                roleForViewer,
+                                senders,
+                                initialOwnerNativePhantom && seer.PlayerId == player.PlayerId
+                                    ? canonicalRole
+                                    : null);
                         }
                     }
                 }
 
+                ApplyCrewNativeInitialImpostorAnchorAbV11();
                 CompleteClientReadyBarrierRoleBundles(senders);
                 doReplace = false;
+                CriticalStartFlowPacketDiagnostic.Mark("ROLE_BUNDLE_RELEASE_RETURN");
             }
+
+            private static bool TrySendIntroBundle(byte viewerId, CustomRpcSender sender)
+            {
+                if (P4SuppressedIntroViewerIds.Contains(viewerId) ||
+                    !Utils.GetPlayerById(viewerId).TryGetClientId(out _))
+                {
+                    P4SuppressedIntroViewerIds.Add(viewerId);
+                    if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                        sender.stream.Recycle();
+                    return false;
+                }
+                sender.SendMessage();
+                return true;
+            }
+
             public static void SendAllImmediately()
             {
                 Release();
 
                 if (senders == null) return;
 
-                senders.Do(kvp => kvp.Value.SendMessage());
+                foreach (var kvp in senders)
+                    TrySendIntroBundle(kvp.Key, kvp.Value);
             }
             public static System.Collections.IEnumerator SendAllDeferred(
                 float intervalSeconds = 0.3f)
             {
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "ROLE_DISPATCH_DEFERRED_ENTER",
+                    $"Interval={intervalSeconds}");
                 Release();
 
                 if (senders == null) yield break;
@@ -1388,13 +2388,20 @@ namespace TownOfHostForE
                         $"BEFORE Index={senderIndex}, SenderPlayerId={kvp.Key}, Interval={intervalSeconds}",
                         "ROLE_DISPATCH_SEND_PERMANENT"
                     );
+                    CriticalStartFlowPacketDiagnostic.Mark(
+                        "ROLE_DISPATCH_SENDER_BEFORE",
+                        $"Index={senderIndex} SenderPlayerId={kvp.Key} Interval={intervalSeconds}");
 
-                    kvp.Value.SendMessage();
-
-                    Logger.Info(
-                        $"AFTER Index={senderIndex}, SenderPlayerId={kvp.Key}",
-                        "ROLE_DISPATCH_SEND_PERMANENT"
-                    );
+                    if (TrySendIntroBundle(kvp.Key, kvp.Value))
+                    {
+                        Logger.Info(
+                            $"AFTER Index={senderIndex}, SenderPlayerId={kvp.Key}",
+                            "ROLE_DISPATCH_SEND_PERMANENT"
+                        );
+                        CriticalStartFlowPacketDiagnostic.Mark(
+                            "ROLE_DISPATCH_SENDER_AFTER",
+                            $"Index={senderIndex} SenderPlayerId={kvp.Key}");
+                    }
 
                     senderIndex++;
 
@@ -1402,13 +2409,18 @@ namespace TownOfHostForE
                         intervalSeconds
                     );
                 }
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "ROLE_DISPATCH_DEFERRED_RETURN",
+                    $"SenderCount={senderIndex} Interval={intervalSeconds}");
             }
             public static void Cleanup()
             {
+                P4SuppressedIntroViewerIds.Clear();
                 senders = null;
                 DesyncImpostorList = null;
                 StoragedData = null;
                 ClientReadyBarrierQueuedRoles.Clear();
+                ClientReadyBarrierAtomicAnchorByViewerABV4.Clear();
             }
             public static void StartReplace(Dictionary<byte, CustomRpcSender> senders)
             {

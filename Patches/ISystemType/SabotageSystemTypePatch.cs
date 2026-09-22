@@ -41,6 +41,11 @@ public static class SabotageSystemTypeUpdateSystemPatch
             return accepted;
         }
 
+        // RENEGADE_R2G_GLOBAL_SABOTAGE_LOCKDOWN
+        // 新規サボタージュ要求をHost authorityで拒否。追加の周期RPCは送らない。
+        if (Renegade.IsAwakeningActive())
+            return TraceReturn(false, "RenegadeAwakeningLockdown");
+
         //HASモードではサボタージュ不可
         if (Options.CurrentGameMode == CustomGameMode.HideAndSeek || Options.IsStandardHAS) return TraceReturn(false, "GameMode");
 

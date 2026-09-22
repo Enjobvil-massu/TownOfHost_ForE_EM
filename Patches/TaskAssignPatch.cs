@@ -6,6 +6,7 @@ using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using TownOfHostForE.Roles.Core;
 using TownOfHostForE.Roles.Crewmate;
 using TownOfHostForE.Roles.AddOns.Crewmate;
+using TownOfHostForE.Modules;
 
 namespace TownOfHostForE
 {
@@ -46,6 +47,11 @@ namespace TownOfHostForE
         public static void Prefix(NetworkedPlayerInfo __instance,
         [HarmonyArgument(0)] ref Il2CppStructArray<byte> taskTypeIds)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "RPC_SET_TASKS_PREFIX",
+                $"ArgumentTasks={taskTypeIds.Count} " +
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(__instance.Object));
+
             //null対策
             if (Main.RealOptionsData == null)
             {
@@ -57,6 +63,27 @@ namespace TownOfHostForE
             CustomRoles? RoleNullable = pc?.GetCustomRole();
             if (RoleNullable == null) return;
             CustomRoles role = RoleNullable.Value;
+
+            // RENEGADE_TASK_ASSIGN_R1: exactly one concrete vanilla task at a time.
+            // HasTask.ForRecompute keeps these tasks out of crew task win / taskbar totals.
+            if (role == CustomRoles.Renegade)
+            {
+                if (TownOfHostForE.Roles.Neutral.Renegade.ShouldReceiveTask(pc) &&
+                    TownOfHostForE.Roles.Neutral.Renegade.TryBuildSingleTaskArray(out var renegadeTaskIds))
+                {
+                    taskTypeIds = renegadeTaskIds;
+                }
+                else
+                {
+                    taskTypeIds = new Il2CppStructArray<byte>(0);
+                }
+
+                Logger.Info(
+                    $"Renegade: task redistribution count={taskTypeIds.Count}",
+                    "RpcSetTasksPatch");
+
+                return;
+            }
 
             // HAMBURGER_SHOP_TASK_ASSIGN_PERMANENT: AirshipのMakeBurger実タスクをバニラ参加者へ配布
             if (role == CustomRoles.HamburgerShop)
@@ -84,23 +111,57 @@ namespace TownOfHostForE
 
             //デフォルトのタスク数
             bool hasCommonTasks = true;
+            bool rebuildCommonTasks = false;
+            int NumCommonTasks = Main.RealOptionsData.GetInt(Int32OptionNames.NumCommonTasks);
             int NumLongTasks = Main.NormalOptions.NumLongTasks;
             int NumShortTasks = Main.NormalOptions.NumShortTasks;
 
             if (Options.OverrideTasksData.AllData.TryGetValue(role, out var data) && data.doOverride.GetBool())
             {
-                hasCommonTasks = data.assignCommonTasks.GetBool(); // コモンタスク(通常タスク)を割り当てるかどうか
-                                                                   // 割り当てる場合でも再割り当てはされず、他のクルーと同じコモンタスクが割り当てられる。
-                NumLongTasks = data.numLongTasks.GetInt(); // 割り当てるロングタスクの数
-                NumShortTasks = data.numShortTasks.GetInt(); // 割り当てるショートタスクの数
-                                                             // ロングとショートは常時再割り当てが行われる。
+                if (data.numCommonTasks != null)
+                {
+                    // MADSNITCH_INDIVIDUAL_TASK_COUNTS_V1:
+                    // この拡張を持つ役職(MadSnitch)だけ、ONなら公式クルータスク数を完全維持、
+                    // OFFならCommon/Long/Shortを個別値で再構築する。
+                    if (data.assignCommonTasks.GetBool())
+                    {
+                        hasCommonTasks = true;
+                        NumCommonTasks = Main.RealOptionsData.GetInt(Int32OptionNames.NumCommonTasks);
+                        NumLongTasks = Main.NormalOptions.NumLongTasks;
+                        NumShortTasks = Main.NormalOptions.NumShortTasks;
+                    }
+                    else
+                    {
+                        hasCommonTasks = false;
+                        rebuildCommonTasks = true;
+                        NumCommonTasks = data.numCommonTasks.GetInt();
+                        NumLongTasks = data.numLongTasks.GetInt();
+                        NumShortTasks = data.numShortTasks.GetInt();
+                    }
+                }
+                else
+                {
+                    // 従来OverrideTasksDataの挙動は変更しない。
+                    hasCommonTasks = data.assignCommonTasks.GetBool();
+                    NumLongTasks = data.numLongTasks.GetInt();
+                    NumShortTasks = data.numShortTasks.GetInt();
+                }
             }
             if (pc.Is(CustomRoles.Workhorse))
+            {
                 (hasCommonTasks, NumLongTasks, NumShortTasks) = Workhorse.TaskData;
+                rebuildCommonTasks = false;
+            }
 
-            if (taskTypeIds.Count == 0) hasCommonTasks = false; //タスク再配布時はコモンを0に
-            if (!hasCommonTasks && NumLongTasks == 0 && NumShortTasks == 0) NumShortTasks = 1; //タスク0対策
-            if (hasCommonTasks && NumLongTasks == Main.NormalOptions.NumLongTasks && NumShortTasks == Main.NormalOptions.NumShortTasks) return; //変更点がない場合
+            if (taskTypeIds.Count == 0)
+            {
+                // 既存仕様: タスク再配布時はCommonを再付与しない。
+                hasCommonTasks = false;
+                rebuildCommonTasks = false;
+            }
+            if (rebuildCommonTasks && NumCommonTasks == 0 && NumLongTasks == 0 && NumShortTasks == 0) NumShortTasks = 1; //タスク0対策
+            if (!rebuildCommonTasks && !hasCommonTasks && NumLongTasks == 0 && NumShortTasks == 0) NumShortTasks = 1; //従来タスク0対策
+            if (!rebuildCommonTasks && hasCommonTasks && NumLongTasks == Main.NormalOptions.NumLongTasks && NumShortTasks == Main.NormalOptions.NumShortTasks) return; //公式値をそのまま使う場合
 
             //割り当て可能なタスクのIDが入ったリスト
             //本来のRpcSetTasksの第二引数のクローン
@@ -113,14 +174,42 @@ namespace TownOfHostForE
             //コモンタスクを割り当てる設定ならコモンタスク以外を削除
             //コモンタスクを割り当てない設定ならリストを空にする
             int defaultCommonTasksNum = Main.RealOptionsData.GetInt(Int32OptionNames.NumCommonTasks);
-            if (hasCommonTasks) TasksList.RemoveRange(defaultCommonTasksNum, TasksList.Count - defaultCommonTasksNum);
-            else TasksList.Clear();
+            if (rebuildCommonTasks)
+            {
+                TasksList.Clear();
+            }
+            else if (hasCommonTasks)
+            {
+                TasksList.RemoveRange(defaultCommonTasksNum, TasksList.Count - defaultCommonTasksNum);
+            }
+            else
+            {
+                TasksList.Clear();
+            }
 
             //割り当て済みのタスクが入れられるHashSet
             //同じタスクが複数割り当てられるのを防ぐ
             Il2CppSystem.Collections.Generic.HashSet<TaskTypes> usedTaskTypes = new();
+            int start1 = 0;
             int start2 = 0;
             int start3 = 0;
+
+            // MadSnitch個別通常タスク(CommonTasks)をOFF時だけ明示再構築する。
+            if (rebuildCommonTasks && NumCommonTasks > 0)
+            {
+                Il2CppSystem.Collections.Generic.List<NormalPlayerTask> CommonTasks = new();
+                foreach (var task in ShipStatus.Instance.CommonTasks)
+                    CommonTasks.Add(task);
+                Shuffle<NormalPlayerTask>(CommonTasks);
+
+                ShipStatus.Instance.AddTasksFromList(
+                    ref start1,
+                    System.Math.Min(NumCommonTasks, CommonTasks.Count),
+                    TasksList,
+                    usedTaskTypes,
+                    CommonTasks
+                );
+            }
 
             //割り当て可能なロングタスクのリスト
             Il2CppSystem.Collections.Generic.List<NormalPlayerTask> LongTasks = new();
@@ -156,6 +245,14 @@ namespace TownOfHostForE
             {
                 taskTypeIds[i] = TasksList[i];
             }
+        }
+        public static void Postfix(NetworkedPlayerInfo __instance,
+        [HarmonyArgument(0)] Il2CppStructArray<byte> taskTypeIds)
+        {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "RPC_SET_TASKS_POSTFIX",
+                $"ArgumentTasks={taskTypeIds.Count} " +
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(__instance.Object));
         }
         public static void Shuffle<T>(Il2CppSystem.Collections.Generic.List<T> list)
         {

@@ -7,6 +7,19 @@ namespace TownOfHostForE
     {
         // 必須情報
         public FloatValueRule Rule;
+        public int UiStepMultiplier { get; private set; } = 1;
+        public int LegacySavedIndexMultiplier { get; private set; } = 1;
+
+        public FloatOptionItem SetUiStepMultiplier(int value)
+        {
+            UiStepMultiplier = value < 1 ? 1 : value;
+            return this;
+        }
+        public FloatOptionItem SetLegacySavedIndexMultiplier(int value)
+        {
+            LegacySavedIndexMultiplier = value < 1 ? 1 : value;
+            return this;
+        }
 
         // コンストラクタ
         public FloatOptionItem(int id, string name, float defaultValue, TabGroup tab, bool isSingleValue, FloatValueRule rule)
@@ -46,7 +59,22 @@ namespace TownOfHostForE
         public override float GetFloat() => Rule.GetValueByIndex(CurrentValue);
         public override string GetString()
         {
-            return ApplyFormat(Rule.GetValueByIndex(CurrentValue).ToString());
+            var value = Rule.GetValueByIndex(CurrentValue);
+
+            // MADMATE_VENT_MAX_INFINITY_DISPLAY_V1:
+            // DEVICE_TIME_LIMIT_PORT_V21:
+            // Keep zero as the stored value. For these options only,
+            // zero means unlimited and is rendered as infinity.
+            if ((Id == 91529 ||
+                 Id == 100092 ||
+                 Id == 100093 ||
+                 Id == 100094) &&
+                value <= 0f)
+            {
+                return "\u221E";
+            }
+
+            return ApplyFormat(value.ToString());
         }
         public override int GetValue()
             => Rule.RepeatIndex(base.GetValue());

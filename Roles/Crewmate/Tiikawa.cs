@@ -76,7 +76,9 @@ namespace TownOfHostForE.Roles.Crewmate
         {
             Parsent = IntegerOptionItem.Create(RoleInfo, 10, OptionName.TiikawaParcent, new(0, 100, 10), 50, false)
                 .SetValueFormat(OptionFormat.Percent);
-            Cooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.Cooldown, new(0f, 180f, 2.5f), 30f, false)
+            Cooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.Cooldown, new(0f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             TiikawaTime = IntegerOptionItem.Create(RoleInfo, 12, OptionName.TiikawaTime, new(1, 60, 1), 10, false)
                 .SetValueFormat(OptionFormat.Seconds);

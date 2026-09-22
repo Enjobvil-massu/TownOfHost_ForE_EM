@@ -199,6 +199,25 @@ namespace TownOfHostForE
                 }
             }
             PlayerState.GetByPlayerId(player.PlayerId).HasSpawned = true;
+
+            // HOST_LOCAL_REMOTE_PET_REANCHOR_AB_V4:
+            // Meeting respawn repair only. Never sends a Pet RPC.
+            if (AmongUsClient.Instance.AmHost &&
+                !Main.isFirstTurn &&
+                (MapNames)Main.NormalOptions.MapId == MapNames.Airship)
+            {
+                TownOfHostForE.Patches.PetSettings.ReanchorHostLocalRemotePetVisual(
+                    player,
+                    "AirshipSpawn.Immediate");
+
+                _ = new LateTask(() =>
+                {
+                    TownOfHostForE.Patches.PetSettings.ReanchorHostLocalRemotePetVisual(
+                        player,
+                        "AirshipSpawn.Delayed");
+                }, 0.15f, "Host Local Remote Pet Reanchor");
+            }
+            TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.AirshipSpawn(player));
         }
         public static bool IsRandomSpawn()
         {

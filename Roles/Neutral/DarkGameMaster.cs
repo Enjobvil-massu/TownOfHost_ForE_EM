@@ -90,7 +90,9 @@ namespace TownOfHostForE.Roles.Neutral
 
         private static void SetupOptionItem()
         {
-            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 2.5f), 30f, false)
+            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             OptionDGClearLimit = IntegerOptionItem.Create(RoleInfo, 11, OptionName.DGWinnerLimit, new(0, 15, 1), 2, false).SetValueFormat(OptionFormat.Times);
             OptionDGWinAlivePlayers = IntegerOptionItem.Create(RoleInfo, 12, OptionName.DGWinAlivePlayers, new(1, 15, 1), 4, false).SetValueFormat(OptionFormat.Players);

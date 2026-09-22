@@ -102,9 +102,13 @@ DarkGameMaster,Tuna,運営者,鮪魚
 OtakuPrincessInfo,everyone on this ship is my boyfriend,船の皆、私の彼ピッピ♡,這條船上的每個人都是我的男朋友
 "MOjouSamaInfo","You are now on Team Impostor","インポスターの味方になった","你加入了内鬼阵营，掩护自己的内鬼同伴，并且一起胜利","你現在變成狼人了,但是你不能砍人,盡量掩護你的隊友的身分","Теперь Вы В Команде Предателей","Você agora é do Time Impostor"
 "EgoOjousamaInfo","You are now on Team Egoist","エゴイストの味方になった","你成为了野心家的伙伴","你是利己主義者的跟班","Теперь Вы В Команде Egoists","Você agora é do Time Egoísta"
+"EOjouSamaInfo","You are now on Team Egoist","エゴイストの味方になった","你成为了野心家的伙伴","你是利己主義者的跟班","Теперь Вы В Команде Egoists","Você agora é do Time Egoísta"
 "JOjousamaInfo","You are now on Team Jackal","ジャッカルの味方になった","你是豺狼的跟班，传宗接代是个好选择","你是豺狼的跟班,打個獻祭流或許是個不錯的選擇","Теперь Вы В Команде Jackal","Você agora é do Time Chacal"
+"JOjouSamaInfo","You are now on Team Jackal","ジャッカルの味方になった","你是豺狼的跟班，传宗接代是个好选择","你是豺狼的跟班,打個獻祭流或許是個不錯的選擇","Теперь Вы В Команде Jackal","Você agora é do Time Chacal"
 OOjousamaInfo,You are now on Opportunist,オポチュニストになった,你是投机者的跟班，传宗接代是个好选择,"你是投機主義者的跟班,盡量幫助他",Теперь вы в команде Opportunist
+OOjouSamaInfo,You are now on Opportunist,オポチュニストになった,你是投机者的跟班，传宗接代是个好选择,"你是投機主義者的跟班,盡量幫助他",Теперь вы в команде Opportunist
 DOjousamaInfo,You are now on Team Darkhide,ダークハイドの味方になった,你是潜藏者的跟班，传宗接代是个好选择,,Теперь вы в команде Darkhide
+DOjouSamaInfo,You are now on Team Darkhide,ダークハイドの味方になった,你是潜藏者的跟班，传宗接代是个好选择,,Теперь вы в команде Darkhide
 AOjouSamaInfo,You are now on Team Animals,アニマルズの味方になった,你我成了动物的盟友
 GizokuInfo,everyone on this ship is my boyfriend,正義を貫くために悪を撃つ,這條船上的每個人都是我的男朋友
 "OniichanInfo","Stay away from my brother, I can't kill him.","お兄ちゃんどいて、そいつ〇せない！","離我兄弟遠點，我殺不了他"
@@ -120,6 +124,7 @@ DOjouSamaInfoLong,You are now on Team Darkhide,ダークハイドの味方にな
 AOjouSamaInfoLong,You are now on Team Animals,アニマルズの味方になった,你我成了动物的盟友
 GizokuInfoLong,"(Neutrals):\nBy transforming, a trap is set up. If a kill position passes over the trap, the target's kill cool is consumed and you become killable. The player wins by killing the specified number of kill positions.",[第三陣営]\nペットを可愛がることで罠を設置する。罠の上をキル役職が通った場合、対象のキルクールを消費して自分がキル可能になる。規定数キル役職をキルすれば勝利。,(中立阵营):\n变身设置了一个陷阱。 如果一个杀戮位置经过陷阱、目标的杀戮冷却就会被消耗，你就会成为可杀之人。 如果你杀了指定数量的杀戮位置、你就赢了。
 GOjouSamaInfoLong,You are now on Team Gizoku,義賊の味方になった,你我成了義賊的盟友
+GOjouSamaInfo,You are now on Team Gizoku,義賊の味方になった,你我成了義賊的盟友
 "OniichanInfoLong","(Neutrals):\n You became a yandere I have to kill him who surrounds my brother. But my brother will stop it.\n[Victory conditions] Kill in the correct order and be the last to be killed or hanged. If 'older brother' or 'that guy' dies, a substitute player will be targeted.\n[Kill order]\nThat guy (can be prevented by confirmation) ⇒ Onii-chan ⇒ That guy","[第三陣営]\n君はヤンデレになった。お兄ちゃん(♥♥)に取り巻くあいつ(XX)を仕留めないといけない。でもお兄ちゃんはそれを阻んでくる。\n【勝利条件】\n正しい順番でキルを行い、最後に自分がキル、もしくは吊られること。「お兄ちゃん」もしくは「あいつ」が死亡した場合、代わりのプレイヤーが対象になる。\n[キル順番]\nあいつ(確定で防がれる)⇒お兄ちゃん⇒あいつ","(中立阵营):\n[第三派]\n你已經變成病嬌了。 我必須殺掉包圍我兄弟的人。 但我的兄弟會阻止它。\n[勝利條件]\n按照正確的順序擊殺，並成為最後一個被殺死或絞死的人。 如果“哥哥”或“那個傢伙”死亡，替補玩家將成為目標\n[殺戮指令]\n那個傢伙（可以通過確認來阻止）⇒大哥哥⇒那個傢伙"
 TunaInfoLong,"(Neutrals):\n Swim around the field! If you stop for a certain amount of time after the first meeting, you will die. If you survive until the end, you win!","[第三陣営]\nフィールドを泳ぎまくれ！　最初の会議後に一定時間立ち止まると死んでしまう。最後まで生き残れば勝利！","(中立阵营):\n在球場周圍游泳！ 如果你在第一次見面後停止一段時間，你就會死。 如果你能活到最後，你就贏了！"
 DarkGameMasterInfoLong,"(Neutrals):\n Swim around the field! If you stop for a certain amount of time after the first meeting, you will die. If you survive until the end, you win!","[第三陣営]\n参加者を指名してゲームを開催しよう！\n開催中は参加者以外はキルもタスクもサボタージュも出来ない。大人しくゲームの行く末を眺めようね\n【操作方法】\n指名：キルボタン\nゲームの開催:2人以上指名且つ両者生存中の会議で自投票\n【勝利条件】\nゲームを3回以上開催した上で自身が生存中且つ残りプレイヤーが4人以下のときに会議が行われる","(中立阵营):\n在球場周圍游泳！ 如果你在第一次見面後停止一段時間，你就會死。 如果你能活到最後，你就贏了！"
@@ -225,6 +230,7 @@ WordLimit,Word limit mode,言葉制限モード,字數限制模式
 "GGCanGuessAdt","Can Guess Add-Ons",属性を推測出来る,"可以猜测<color=#ff9ace>附加职业</color>"
 "GGCanGuessVanilla","Can Guess Vanilla Roles",バニラ役職を推測できる,"可以猜测原版职业"
 "GuesserCanGuessTimes","Maximum number of guesses",推測出来る最大人数,"每次会议猜测次数上限"
+"GamblerGuessMaxTimes","Maximum number of guesses","推測できる最大回数","每次会议猜测次数上限","","",""
 "GGGuesserTryHideMsg","Hide <color=#eede26>Nice Guesser</color>'s commands",ゲッサーのコマンドを隠す,"尝试混淆正义赌怪指令"
 "EGGuesserTryHideMsg","Hide <color=#ff1919>Evil Guesser</color>'s commands",ゲッサーのコマンドを隠す,"尝试混淆邪恶赌怪指令"
 "AGCanGuessAnim","Can Guess <color=#8cffff>Crewmate</color> Roles",<color=#FF8C00>アニマルズ</color>の役割を推測できる,"可以猜测<color=#8cffff>船员</color>"
@@ -349,10 +355,14 @@ SBPHideName,Hide Name,名前を隠す,隱藏姓名
 "GuardianAngel","Guardian Angel","守護天使","守护天使","守護天使","Ангел-хранитель","Anjo da Guarda"
 "Impostor","Impostor","インポスター","内鬼","偽裝者","Предатель","Impostor"
 "Shapeshifter","Shapeshifter","シェイプシフター","变形者","變形者","Оборотень","Metamorfo"
+"Phantom","Phantom","ファントム","Phantom","Phantom","Phantom","Phantom"
 "NormalImpostor","Normal Impostor","通常インポスター","普通内鬼"
 "NormalShapeshifter","Shapeshifter","シェイプシフター","变形者","變形者","Оборотень","Metamorfo"
+"NormalPhantom","Phantom","ファントム","Phantom","Phantom","Phantom","Phantom"
+"NormalViper","Viper","バイパー","Viper","Viper","Viper","Viper"
 "NormalEngineer","Engineer","エンジニア","工程师","工程師","Инженер","Engenheiro"
 "NormalScientist","Scientist","科学者","科学家","科學家","Ученый","Cientista"
+"NormalJudge","Judge","ジャッジ","Judge","Judge","Judge","Judge"
 
 "# 特殊インポスター役職"
 "EvilWatcher","Evil Watcher","イビルウォッチャー","邪恶的窥视者","邪惡的觀察者","Злой Наблюдатель","Observador do Mal"
@@ -906,6 +916,7 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "ChangeNameToRoleInfo","Show Role Descriptions to Unmodded Client","役職説明を非modクライアントにも表示する","对未安装本mod的玩家显示职业说明","對未安裝本模組的玩家顯示職業說明","Показать описания Ролей игрокам играющие без Мода","Mostrar Descrição de Classe para Clientes Não Modificados"
 "RoleAssigningAlgorithm","Role Assigning Algorithm","役職割り当てのアルゴリズム","职业分配算法","職業分配算法","Алгоритм назначения Ролей",""
 "RoleAssigningAlgorithm.Default","Default","デフォルト","默认随机算法","預設算法","По умолчанию",""
+"RoleAssigningAlgorithm.MassuOriginal","Enjob Reincarnation","エンジョブ輪廻転生","Enjob Reincarnation","Enjob Reincarnation","Enjob Reincarnation","Enjob Reincarnation"
 "RoleAssigningAlgorithm.NetRandom",".NET System.Random",".NET System.Random",".NET 系统随机算法","NET系統隨機算法","Случайный",""
 "RoleAssigningAlgorithm.HashRandom","HashRandom","HashRandom","哈希随机算法","Hash值隨機算法","HashRandom",""
 "RoleAssigningAlgorithm.Xorshift","Xorshift","Xorshift","Xorshift随机算法","Xorshift隨機算法","Xorshift",""
@@ -955,6 +966,8 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "ShapeshiftDuration","Shapeshift Duration","変身持続時間",,
 "ShapeshifterLeaveSkin","Leave Shapeshifting Evidence","変身の証拠を残す"
 "MadSnitchTaskTrigger","Tasks Until Boost Activated","効果を発動するタスク数","","","",""
+"MadSnitchAssignTasks","Configure MadSnitch Tasks","マッドスニッチに通常タスクを割り当てる","","","",""
+"MadSnitchAssignCommonTasks","Assign MadSnitch Common Tasks","共通タスクを割り当てる","","","",""
 "LighterTriggerType","Ability Activation Condition","能力発動条件","","","Условие активации способности",""
 "LighterTaskTrigger","Tasks Until Boost Activated","効果を発動するタスク数","","","Количество задач повышающие скорость",""
 "DoubleTriggerThreashould","Double Trigger Threashould","ダブルトリガー閾値"
@@ -1026,10 +1039,15 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "NekoKabochaImpostorsGetRevenged","Impostors Get Revenged","インポスターを道連れにする","","","Предатели могут мстить",""
 "NekoKabochaMadmatesGetRevenged","Madmates Get Revenged","マッドメイトを道連れにする","","","Безумцы могут мстить",""
 "NekoKabochaRevengeOnExile","Revenge When Exiled","追放された時に誰かを道連れにする","","","Месть во время изгнания",""
-"EvilHackerCanSeeDeadMark","Can See The Location of Dead-bodies","死体位置がわかる","","","Может видеть местоположение трупов",""
-"EvilHackerCanSeeImpostorMark","Can See The Location of Other Impostors","他のインポスターの位置がわかる","","","Может видеть местоположение других Предателей",""
-"EvilHackerCanSeeKillFlash","Can See The Kill-flash for Impostor Kills","インポスターキル時にフラッシュが見える","","","Может видеть ''Вспышку Убийства''",""
-"EvilHackerCanSeeMurderRoom","Can See The Murder Location","キルの発生場所がわかる","","","Может увидеть место убийства",""
+"EvilHackerCanSeeDeadMark","Can See The Location of Dead-bodies","会議時アモチャットに死体のある部屋を表示","","","Может видеть местоположение трупов",""
+"EvilHackerCanSeeImpostorMark","Can See The Location of Other Impostors","会議時アモチャットにインポスターのいる部屋を表示","","","Может видеть местоположение других Предателей",""
+"EvilHackerCanSeeKillFlash","Can See The Kill-flash for Impostor Kills","インポスターキル時にキルフラッシュを表示","","","Может видеть ''Вспышку Убийства''",""
+"EvilHackerCanSeeMurderRoom","Can See The Murder Location","キル発生場所を名前の下に表示","","","Может увидеть место убийства",""
+"EvilHackerUseRealtimeAdmin","Use Realtime Admin","簡易アドミンを使用する","","","",""
+"EvilHackerSimpleAdminCooldown","Simple Admin Cooldown","簡易アドミンのクールタイム","","","",""
+"EvilHackerShowImpostorTeammates","Show Impostor Teammate Locations","簡易アドミンに相方インポスターの位置を表示","","","",""
+"EvilHackerShowLastAdminAtMeeting","Show Last Admin Information in Meeting Chat","会議時に最終簡易アドミン情報をアモチャットへ表示","","","",""
+"EvilHackerCommsBlocked","Communications sabotaged","通信妨害中","","","",""
 "PenguinAbductTimerLimit","Dragging Time","引き摺れる時間","","","Время перетаскивания",""
 "PenguinMeetingKill","Kill if meeting starts during dragging.","会議開始時に引き摺り中ならキルする","","","Убить если встреча начнется во время перетаскивания",""
 "InsiderCanSeeImpostorAbilities","Can See Impostor Abilities","味方インポスターの能力が分かる","","","Может видеть роли других Предателей",""
@@ -1056,6 +1074,10 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 
 "MadmateCanFixLightsOut","Madmate Can Fix Lights","停電を直せる","叛徒系职业可以修理照明破坏","叛徒職業的玩家可以修理電燈","Madmates Могут Чинить Свет","Loucos Podem Consertar Luzes"
 "MadmateCanFixComms","Madmate Can Fix Comms","通信障害を直せる","叛徒系职业可以修理通讯","叛徒職業的玩家可以修理通訊","Madmates Могут Чинить Связь","Loucos Podem Consertar Comunicações"
+"MadmateSabotageRepairSettings","Show Sabotage Repair Settings","サボタージュ修理設定を表示する","","","",""
+"MadmateCanFixReactor","Can Fix Reactor","リアクター・耐震安定装置を直せる","","","",""
+"MadmateCanFixOxygen","Can Fix O2","O2を直せる","","","",""
+"MadmateCanFixHeliSabotage","Can Fix Airship Crash Course","衝突コースを直せる（Airship）","","","",""
 "MadmateHasImpostorVision","Madmate Have Impostor Vision","インポスター視界を持つ","叛徒系职业拥有内鬼视野","叛徒職業的玩家有跟狼人一樣的視野","Madmates Имеют Дальность Обзора Предателя","Loucos Têm Visão de Impostor"
 "MadmateCanSeeKillFlash","Madmate Can See ""Kill Flash""","キルフラッシュが見える","叛徒系职业可以看到击杀闪光","叛徒職業的玩家可以看到殺人閃光","Madmates Могут Видеть Вспышку Убийства","Loucos Podem Ver ""Clarão de Abate"""
 "MadmateCanSeeOtherVotes","Madmate Can See Votes","他人の投票先が分かる","叛徒系职业可以看到其他人所投的票","叛徒可以看到所有人的投票","Madmates Могут Видеть Цвета Голосов","Loucos Podem Ver Votos"
@@ -1232,9 +1254,11 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "SabotageTimeControl","Sabotage Duration Control","サボタージュの時間制御","更改修理时限","重新設定緊急任務時間","Изменить время Саботажа","Controle da Duração de Sabotagem"
 "PolusReactorTimeLimit","Polus Reactor Duration","ポーラスのリアクター制限時間","波鲁斯抗震稳定器修理时限","Polus地震抑制器破壞最大時間","Polus время саботажа Реактора","Duração do Reator em Polus"
 "AirshipReactorTimeLimit","Airship Reactor Duration","エアシップのリアクター制限時間","飞艇坠毁路线修理时限","Airship間隙室破壞最大時間","Airship время саботажа Реактора","Duração do Reator em Airship"
+"FungleReactorTimeLimit","<#ff9900>TheFungle</color> Reactor Duration","<#ff9900>TheFungle</color>のリアクター制限時間","反应堆时间限制（蘑菇岛地图）","","Время саботажа Реактора на The Fungle",""
+"FungleMushroomMixupDuration","<#ff9900>TheFungle</color> Mushroom Mixup Duration","<#ff9900>TheFungle</color>のキノコカオス効果時間","蘑菇混合持续时间（蘑菇岛地图）","","Длительность грибного переполоха на The Fungle",""
 
 "## ゲーム設定UI"
-"TOHSettingsButtonLabel","TOH Settings","ＴＯＨ４Ｅ設定",""
+"TOHSettingsButtonLabel","TOH Settings","ＭＯＤ設定",""
 "TOHSettingsDescription","Edit mod settings for your game lobby.","Modの設定を編集出来たり\r\n出来なかったり\r\n(´；ω；｀)。",""
 
 "## クライアント設定"
@@ -1287,7 +1311,7 @@ GhostCanSeeOtherTasks,"Ghosts Can't See Other Tasks","幽霊が他人のタス�
 "Message.KickedByNoFriendCode","{0} was kicked because the friend code does not exist.","{0}はフレンドコードが存在しないためキックされました。","{0}被踢出，因其好友编号无效。","{0}因為沒有好友代碼，所以踢出了他。","{0} был кикнут, так как у него нет кода друга",""
 "Message.AddedPlayerToBanList","Added {0} to the ban list.","{0}をBANリストに追記しました。","{0}已被添加到封禁名单","已將 {0} 加入到黑名單中，此玩家將無法再進入你的房間。(需安裝TOH模組)","{0} был добавлен в список забаненых игроков",""
 "Message.AnnounceUsingTOH","This room uses TownOfHost_ForE v{0}.\n/cmd now can be used to check the current settings.\nPlease check GitHub for detailed roles descriptions.","この部屋はTownOfHost_ForE v{0}を使用しています。本家TOH、現行版TOH_ForEを含む他MOD導入中の方との共存は出来ません。\n/cmd nで現在の設定、/cmd h nで現在の設定の説明が確認できます。","本房间使用TownOfHost_ForE mod v{0}。\n可以使用/cmd now来查询当前设置。\n请前往本mod的Github页面来获取详细的职业信息。","本房間使用TownOfHost_ForE v{0}。\n可以使用/cmd n來查詢目前設定。\n若要獲得進一步的職業介紹(並沒有繁體中文翻譯版本)請前往本模組的Github頁面來獲得。","В этой комнате используется TownOfHost_ForE v{0}. Используйте  \n/cmd now чтобы увидеть текущие настройки. \nПожалуйста посетите GitHub для получения подробного описания мода и ролей.","Esta sala está usando TownOfHost_ForE versão {0} .\nO comando /cmd now pode ser usado para ver as configurações atuais.\nPor favor, verifique o GitHub para descrições detalhadas das classes."
-"Message.JoinCommandListGuide","You can view the command list with /cmd h.","コマンド一覧は /cmd h で確認できます。"
+"Message.JoinCommandListGuide","You can view the command list with /cmd h.","コマンド：/cmd h　役職説明：/cmd m"
 "Message.isReport","The meeting was started by the discovery of a dead body.\nReported dead body：{0}","死体発見により会議が開かれました。\n通報された死体：{0}","会议以发现一具尸体开始。\n报告的尸体：{0}"
 "Message.isButton","The meeting was started by an emergency button.","緊急ボタンにより会議が開かれました。","会议以使用紧急按钮开始."
 "Message.RevengeText","{0} is exiled, and another is died by revenge. \nmurdered：{1}","{0}が追放され、道連れが発生しました。\n{1}が死亡しています。","{0} 被投出，另一人因复仇而死. \n凶杀：{1}"
@@ -1388,7 +1412,7 @@ PanAlive13,\nBread was served by the bakery.\nㅤ,\nパン屋は{0}に向けて�
 "updateInProgress","Updating...","アップデート中...","更新中……","更新中...","Обновление...","Atualizando..."
 "announcementUpdate","<size=3f>Update v{0}</size>\n{1}","<size=3f>アップデート v{0}</size>\n{1}","<size=3f>更新到v{0}</size>\n{1}","<size=3f>更新v{0}</size>\n{1}","<size=3f>Обновление v{0}</size>\n{1}","<size=3f>Atualização v{0}</size>\n{1}"
 "announcementChangelog","<size=3f>ChangeLogs v{0}</size>\n{1}","<size=3f>更新内容 v{0}</size>\n{1}","<size=3f>更新日志 v{0}</size>\n{1}","<size=3f>更新內容v{0}</size>\n{1}","<size=3f>Журнал Изменений v{0}</size>\n{1}","<size=3f>Alteração de Registros v{0}</size>\n{1}"
-"updateRestart","Update Finished!\nPlease restart the game.","アップデートが完了しました。\nゲームを再起動してください。","更新完毕。\n请重新启动游戏。","更新完成!\n請重新啟動遊戲","Обновление завершено! \nПожалуйста перезапустите игру.","Atualização terminou!\nPor favor reinicie o jogo."
+"updateRestart","Update ready.\nQuit the game to apply it, then restart.","アップデートの準備が完了しました。\nゲームを終了すると更新を適用します。\nその後、ゲームを再起動してください。","更新已准备就绪。\n退出游戏后将应用更新，然后请重新启动游戏。","更新已準備完成。\n結束遊戲後將套用更新，然後請重新啟動遊戲。","Обновление готово.\nЗакройте игру, чтобы применить обновление, затем запустите её снова.","Atualização pronta.\nFeche o jogo para aplicar a atualização e depois reinicie-o."
 "updateFailed","Update failed.","アップデートに失敗しました。","更新失败。","更新失敗","Не удалось обновить.","Atualização falhou."
 "onSetPublicNoLatest","Public rooms are only available in the latest version.\nPlease update.","最新版以外で公開ルームにはできません。\nアップデートをしてください。","不可以在未安装最新模组的前提下创建公开房间。\n请更新本模组。","無法建立一個公共房間，因為使用的不是最新版本的模組\n請更新本模組。","Публичные лобби запрещены за исключением последней версии.\nПожалуйста обновите.","Salas públicas estão disponíveis apenas na última versão.\nPor favor atualize."
 "CanNotJoinPublicRoomNoLatest","You can't join public rooms without the latest version.\nPlease update.","最新版以外で公開ルームには参加できません。\nアップデートをしてください。","不可以在未安装最新模组的前提下进入公开房间。\n请更新本模组。","無法在未安裝最新版本的前提下進入公開房間\n請更新本模組","Вы не можете присоединяться к публичным лобби за исключением последней версии.\nПожалуйста обновите.","Você não pode entrar em salas públicas sem a última versão.\nPor favor atualize."
@@ -1556,3 +1580,37 @@ PanAlive13,\nBread was served by the bakery.\nㅤ,\nパン屋は{0}に向けて�
 "HamburgerShopCommonTasks","Common tasks","通常タスク","","","",""
 "HamburgerShopShortTasks","Short tasks","ショートタスク","","","",""
 "HamburgerShopLongTasks","Long tasks","ロングタスク","","","",""
+"MadSnitchUseOfficialTaskCounts","Use official Crewmate task counts","公式クルーメイトタスク数を割り当てる","","","",""
+"MadSnitchIndividualLongTasks","Individual long tasks","個別ロングタスク数","","","",""
+"MadSnitchIndividualNormalTasks","Individual common tasks","個別通常タスク数","","","",""
+"MadSnitchIndividualShortTasks","Individual short tasks","個別ショートタスク数","","","",""
+"updateListTitle","Town Of Host For E EM - Updates","Town Of Host For E EM - アップデート一覧","","","",""
+"updateCurrentVersion","Current version","現在のバージョン","","","",""
+"updateLatestVersion","Latest version","最新バージョン","","","",""
+"updateAvailable","A new update is available.","新しいアップデートがあります。","","","",""
+"updateAlreadyLatest","You are using the latest version.","現在は最新版です。","","","",""
+"updateAmongUsMismatch","This release is for a different Among Us version.","Among Usの対応バージョンが異なるため更新できません。","","","",""
+"updateCheckFailed","Could not retrieve update information.","アップデート情報を取得できませんでした。","","","",""
+"updateServerNotConfigured","Update server URL is not configured.","アップデートサーバーURLが未設定です。","","","",""
+"updateNoInstallableRelease","No installable update is available.","インストール可能なアップデートはありません。","","","",""
+"updateInstallButton","Install update","アップデートする","","","",""
+"updateCloseButton","Close","閉じる","","","",""
+"updateQuitButton","Quit game","ゲームを終了","","","",""
+"MadmateVision","Madmate Vision","マッドメイト視界","Madmate Vision","Madmate Vision","Madmate Vision","Madmate Vision"
+"MadmateVision.Crewmate","Crewmate","クルーメイト","Crewmate","Crewmate","Crewmate","Crewmate"
+"MadmateVision.Impostor","Impostor","インポスター","Impostor","Impostor","Impostor","Impostor"
+"TimeLimitDevices","Device Time Limit","デバイスに制限時間","Device Time Limit","Device Time Limit","Device Time Limit","Device Time Limit"
+"ShowDeviceTimeLimitInMeeting","Show Remaining Time During Meetings","残り時間を会議中表示する","Show Remaining Time During Meetings","Show Remaining Time During Meetings","Show Remaining Time During Meetings","Show Remaining Time During Meetings"
+"TimeLimitAdmin","Admin Time Limit","アドミンの制限時間","Admin Time Limit","Admin Time Limit","Admin Time Limit","Admin Time Limit"
+"TimeLimitCamAndLog","Camera/Doorlog Time Limit","カメラ/ドアログの制限時間","Camera/Doorlog Time Limit","Camera/Doorlog Time Limit","Camera/Doorlog Time Limit","Camera/Doorlog Time Limit"
+"TimeLimitVital","Vitals Time Limit","バイタルの制限時間","Vitals Time Limit","Vitals Time Limit","Vitals Time Limit","Vitals Time Limit"
+"DeviceTimeLimitAdminLabel","Admin","アドミン","Admin","Admin","Admin","Admin"
+"DeviceTimeLimitCameraLabel","Camera","カメラ","Camera","Camera","Camera","Camera"
+"DeviceTimeLimitDoorLogLabel","Doorlog","ドアログ","Doorlog","Doorlog","Doorlog","Doorlog"
+"DeviceTimeLimitVitalLabel","Vitals","バイタル","Vitals","Vitals","Vitals","Vitals"
+Renegade,Renegade,レネゲイド,叛逆者,叛逆者,,
+RenegadeInfo,Offer tasks and awaken,タスクを奉納し、覚醒せよ,完成奉纳并觉醒,完成奉納並覺醒,,
+RenegadeInfoLong,"(Neutrals)\nComplete one task at a time and offer it with the emergency button. Awaken after the configured number of offerings.","[第三陣営]\n1つずつ与えられるタスクを完了し、緊急会議ボタンで奉納する。設定された回数を奉納すると覚醒する。","[第三阵营]\n逐个完成任务并通过紧急按钮奉纳。达到设定次数后觉醒。","[第三陣營]\n逐一完成任務並透過緊急按鈕奉納。達到設定次數後覺醒。",,
+RenegadeRequiredOfferings,Required Offerings,奉納回数,奉纳次数,奉納次數,,
+RenegadeAwakenDuration,Awaken Duration,覚醒時間,觉醒时间,覺醒時間,,
+RenegadeAwakenSpeed,Awaken Speed,覚醒時の移動速度,觉醒时移动速度,覺醒時移動速度,,

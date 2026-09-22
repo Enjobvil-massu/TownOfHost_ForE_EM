@@ -26,6 +26,16 @@ namespace TownOfHostForE
         public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
         {
             if (!AmongUsClient.Instance.AmHost) return false;
+
+            // RENEGADE_R2G_GLOBAL_PROTECT_LOCKDOWN
+            if (Renegade.IsAwakeningActive())
+            {
+                Logger.Info(
+                    $"R2G awakened chase: Protect blocked actor={__instance.PlayerId}",
+                    "Renegade");
+                return false;
+            }
+
             Logger.Info("CheckProtect発生: " + __instance.GetNameWithRole() + "=>" + target.GetNameWithRole(), "CheckProtect");
             if (__instance.Is(CustomRoles.Sheriff)
                 ||__instance.Is(CustomRoles.SillySheriff)
@@ -62,6 +72,18 @@ namespace TownOfHostForE
             if (!AmongUsClient.Instance.AmHost) return false;
             // ROLEBUGTRACE_STAGE1A_PERMANENT
             RoleBugTrace.KillAttempt(__instance, target);
+
+            // RENEGADE_R2G_GLOBAL_ATTACK_LOCKDOWN
+            // 覚醒レネゲイド本人の接触キルだけを通し、それ以外の攻撃入力は失敗扱い。
+            if (Renegade.IsAwakeningActive() &&
+                !Renegade.IsAwakeningPlayer(__instance))
+            {
+                Logger.Info(
+                    $"R2G awakened chase: CheckMurder blocked killer={__instance.PlayerId} target={target?.PlayerId}",
+                    "Renegade");
+                __instance.RpcMurderPlayer(target, false);
+                return false;
+            }
 
             // 処理は全てCustomRoleManager側で行う
             if (!CustomRoleManager.OnCheckMurder(__instance, target))
@@ -135,9 +157,11 @@ namespace TownOfHostForE
             }
             // キルが可能なプレイヤーか(遠隔は除く)
             // ULTRASTAR_CONTACT_KILL_PERMANENT: キルボタンを持たない接触キルだけを許可
+            // RENEGADE_R2D_CONTACT_KILL_GATE: 覚醒中レネゲイドも同じ設計で許可。
             if (!info.IsFakeSuicide
                 && !killer.CanUseKillButton()
-                && !killer.Is(CustomRoles.UltraStar))
+                && !killer.Is(CustomRoles.UltraStar)
+                && !Renegade.CanUseAwakeningContactKill(killer))
             {
                 Logger.Info(killer.GetNameWithRole() + "はKillできないので、キルはキャンセルされました。", "CheckMurder");
                 return false;
@@ -149,8 +173,157 @@ namespace TownOfHostForE
     class RpcMurderPlayerPatch
     {
         private static readonly LogHandler logger = Logger.Handler(nameof(PlayerControl.RpcMurderPlayer));
+
+        private static bool SendViperViewerRoleAbV1(
+            PlayerControl viewer,
+            PlayerControl killer,
+            RoleTypes role,
+            string stage)
+        {
+            try
+            {
+                if (!viewer.TryGetClientId(out var clientId)) return false;
+                var sender = CustomRpcSender.Create(
+                    "Viper Vanilla Dissolve Bridge AB V1 " + stage,
+                    Hazel.SendOption.Reliable);
+
+                sender.StartMessage(clientId);
+                sender.StartRpc(killer.NetId, RpcCalls.SetRole)
+                    .Write((ushort)role)
+                    .Write(true)
+                    .EndRpc();
+                sender.EndMessage();
+                sender.SendMessage();
+
+                Logger.Info(
+                    $"Stage={stage} | ViewerId={viewer.PlayerId} | " +
+                    $"ViewerClientId={viewer.GetClientId()} | KillerId={killer.PlayerId} | " +
+                    $"Role={role}",
+                    "VIPER_VANILLA_DISSOLVE_BRIDGE_AB_V1");
+
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Exception(ex, "VIPER_VANILLA_DISSOLVE_BRIDGE_AB_V1");
+                return false;
+            }
+        }
+
+        private static void ArmViperVanillaDissolveBridgeAbV1(
+            PlayerControl killer)
+        {
+            if (killer == null ||
+                killer.Data == null ||
+                killer.Data.Disconnected ||
+                !killer.Is(CustomRoles.NormalViper))
+            {
+                return;
+            }
+
+            var restorePlan =
+                new List<(PlayerControl Viewer, RoleTypes RestoreRole)>();
+
+            foreach (var viewer in Main.AllPlayerControls)
+            {
+                if (viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    viewer.AmOwner ||
+                    viewer.IsModClient())
+                {
+                    continue;
+                }
+
+                if (!AntiBlackout.TryGetViewerNativeRoleForViperDissolveBridgeAbV1(
+                        viewer,
+                        killer,
+                        out var restoreRole))
+                {
+                    continue;
+                }
+
+                if (restoreRole == RoleTypes.Viper)
+                {
+                    Logger.Info(
+                        $"Stage=ALREADY_VIPER | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()} | KillerId={killer.PlayerId}",
+                        "VIPER_VANILLA_DISSOLVE_BRIDGE_AB_V1");
+                    continue;
+                }
+
+                if (!SendViperViewerRoleAbV1(
+                        viewer,
+                        killer,
+                        RoleTypes.Viper,
+                        "ARM"))
+                {
+                    continue;
+                }
+
+                restorePlan.Add((viewer, restoreRole));
+            }
+
+            if (restorePlan.Count == 0)
+                return;
+
+            var snapshot = restorePlan.ToArray();
+
+            // Keep the temporary role only long enough for the already-imminent
+            // native MurderPlayer packet to create ViperDeadBody locally.
+            // The restore is viewer-only and never changes host canonical roles.
+            _ = new LateTask(
+                () =>
+                {
+                    foreach (var entry in snapshot)
+                    {
+                        var viewer = entry.Viewer;
+                        if (viewer == null ||
+                            viewer.Data == null ||
+                            viewer.Data.Disconnected)
+                        {
+                            continue;
+                        }
+
+                        SendViperViewerRoleAbV1(
+                            viewer,
+                            killer,
+                            entry.RestoreRole,
+                            "RESTORE");
+                    }
+                },
+                0.35f,
+                "ViperVanillaDissolveBridgeABV1Restore");
+        }
+
         public static void Prefix(PlayerControl __instance, PlayerControl target, ref bool didSucceed)
         {
+            // RENEGADE_R2G_RPC_MURDER_LOCKDOWN
+            // CheckMurderを通らない直接RPC経路もHost側で最終遮断する。
+            // 覚醒レネゲイド本人（接触キル/タイムアウト自己死）は除外。
+            if (didSucceed &&
+                AmongUsClient.Instance.AmHost &&
+                Renegade.IsAwakeningActive() &&
+                !Renegade.IsAwakeningPlayer(__instance))
+            {
+                didSucceed = false;
+                logger.Info(
+                    $"R2G awakened chase: RpcMurderPlayer blocked killer={__instance.PlayerId} target={target?.PlayerId}");
+                return;
+            }
+
+            // RENEGADE_R2B_RPC_MURDER_GUARD
+            if (didSucceed &&
+                Renegade.ShouldBlockPlayerCausedMurder(
+                    __instance,
+                    target,
+                    "RpcMurderPlayer"))
+            {
+                didSucceed = false;
+                logger.Info("レネゲイド覚醒無敵により成功Murder RPCを失敗扱いへ変更");
+                return;
+            }
+
             if (didSucceed)
             {
                 if (target.shapeshifting)
@@ -179,6 +352,20 @@ namespace TownOfHostForE
                 }
                 Camouflage.RpcSetSkin(target, ForceRevert: true, RevertToDefault: true);
             }
+
+            // VIEWER_NATIVE_TOPOLOGY_LIFECYCLE_AB_V27:
+            // RpcMurderPlayer本体のMurder RPC送信前にsole sentinelを交代。
+            if (didSucceed && AmongUsClient.Instance.AmHost)
+            {
+                AntiBlackout.TryRotateViewerNativeSentinelBeforeMurderAbV27(target);
+
+                // VIPER_VANILLA_DISSOLVE_BRIDGE_AB_V1:
+                // Arm only after the victim-sentinel rotation so restore roles
+                // represent the latest viewer-effective native topology.
+                if (__instance.Is(CustomRoles.NormalViper))
+                    ArmViperVanillaDissolveBridgeAbV1(__instance);
+            }
+
             logger.Info($"{__instance.GetNameWithRole()} => {target.GetNameWithRole()}(didSucceed:{didSucceed})");
         }
     }
@@ -186,13 +373,49 @@ namespace TownOfHostForE
     class MurderPlayerPatch
     {
         private static readonly LogHandler logger = Logger.Handler(nameof(PlayerControl.MurderPlayer));
-        public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target, [HarmonyArgument(1)] MurderResultFlags resultFlags, ref bool __state /* 成功したキルかどうか */ )
+        public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target, [HarmonyArgument(1)] MurderResultFlags resultFlags, ref bool __state /* 成功したキルかどうか */ )
         {
             logger.Info($"{__instance.GetNameWithRole()} => {target.GetNameWithRole()}({resultFlags})");
             var isProtectedByClient = resultFlags.HasFlag(MurderResultFlags.DecisionByHost) && target.IsProtected();
             var isProtectedByHost = resultFlags.HasFlag(MurderResultFlags.FailedProtected);
             var isFailed = resultFlags.HasFlag(MurderResultFlags.FailedError);
             var isSucceeded = __state = !isProtectedByClient && !isProtectedByHost && !isFailed;
+
+            // RENEGADE_R2G_LOCAL_MURDER_LOCKDOWN
+            // Balancer/Penguin等の直接MurderPlayer経路もHost canonical stateで遮断。
+            if (isSucceeded &&
+                AmongUsClient.Instance.AmHost &&
+                Renegade.IsAwakeningActive() &&
+                !Renegade.IsAwakeningPlayer(__instance))
+            {
+                __state = false;
+                logger.Info(
+                    $"R2G awakened chase: local MurderPlayer blocked killer={__instance.PlayerId} target={target?.PlayerId}");
+                return false;
+            }
+
+            // RENEGADE_R2B_LOCAL_MURDER_GUARD
+            // Failed/protected MurderPlayer results remain untouched.
+            if (isSucceeded &&
+                Renegade.ShouldBlockPlayerCausedMurder(
+                    __instance,
+                    target,
+                    "MurderPlayer"))
+            {
+                __state = false;
+                return false;
+            }
+
+            // VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28:
+            // Catch direct local MurderPlayer paths (Balancer/Penguin/etc.) that
+            // do not necessarily pass RpcMurderPlayer first.
+            if (isSucceeded && AmongUsClient.Instance.AmHost)
+            {
+                AntiBlackout.TryRotateViewerNativeSentinelBeforeDeathAbV28(
+                    target,
+                    "MURDER_LOCAL_PREFIX");
+            }
+
             // ROLEBUGTRACE_STAGE1A_PERMANENT
             RoleBugTrace.KillResult(__instance, target, isSucceeded, resultFlags.ToString());
             if (isProtectedByClient)
@@ -212,6 +435,8 @@ namespace TownOfHostForE
             {
                 logger.Info("キルは実行されます");
             }
+
+            return true;
         }
         public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target, bool __state)
         {
@@ -229,6 +454,29 @@ namespace TownOfHostForE
     }
 
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift))]
+
+
+    [HarmonyPatch(typeof(PlayerControl), "Exiled")]
+    class ViewerNativeTopologyExiledAbV28Patch
+    {
+        public static bool Prefix(PlayerControl __instance)
+        {
+            // RENEGADE_R2B_EXILED_BACKSTOP
+            if (Renegade.ShouldBlockForcedExile(
+                    __instance,
+                    "PlayerControl.Exiled"))
+            {
+                return false;
+            }
+
+            AntiBlackout.TryRotateViewerNativeSentinelBeforeDeathAbV28(
+                __instance,
+                "EXILED_PREFIX");
+
+            return true;
+        }
+    }
+
     public static class PlayerControlCheckShapeshiftPatch
     {
         private static readonly LogHandler logger = Logger.Handler(nameof(PlayerControl.CheckShapeshift));
@@ -240,8 +488,20 @@ namespace TownOfHostForE
                 return false;
             }
 
+            // RENEGADE_R2G_GLOBAL_SHAPESHIFT_LOCKDOWN
+            // 新規変身だけ拒否し、既に変身中のself-target解除は通す。
+            if (Renegade.IsAwakeningActive() &&
+                target != null &&
+                __instance.PlayerId != target.PlayerId)
+            {
+                logger.Info(
+                    $"R2G awakened chase: shapeshift blocked player={__instance.PlayerId} target={target.PlayerId}");
+                __instance.RpcRejectShapeshift();
+                return false;
+            }
+
             // 無効な変身を弾く．これより前に役職等の処理をしてはいけない
-            if (!CheckInvalidShapeshifting(__instance, target, shouldAnimate))
+            if (!CheckInvalidShapeshifting(__instance, target!, shouldAnimate))
             {
                 __instance.RpcRejectShapeshift();
                 return false;
@@ -301,7 +561,7 @@ namespace TownOfHostForE
         {
             logger.Info($"Checking shapeshift {instance.GetNameWithRole()} -> {(target == null || target.Data == null ? "(null)" : target.GetNameWithRole())}");
 
-            if (!target || target.Data == null)
+            if (target is null || !target || target.Data == null)
             {
                 logger.Info("targetがnullのため変身をキャンセルします");
                 return false;
@@ -376,6 +636,67 @@ namespace TownOfHostForE
                 1.2f, "ShapeShiftNotify");
             }
         }
+
+        public static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
+        {
+            // SHAPESHIFT_DEATH_OUTFIT_RESTORE_AB_V1:
+            // OnShapeshift is invoked from ShapeshiftPatch.Prefix before the native Shapeshift body.
+            // A role can die there; the outer native Shapeshift may then reapply the target outfit.
+            // Restore only players that actually died during a real shapeshift start.
+            if (!AmongUsClient.Instance.AmHost ||
+                __instance == null ||
+                target == null ||
+                __instance.PlayerId == target.PlayerId)
+            {
+                return;
+            }
+
+            var player = __instance;
+            _ = new LateTask(
+                () =>
+                {
+                    if (player == null ||
+                        player.Data == null ||
+                        player.Data.Disconnected)
+                    {
+                        return;
+                    }
+
+                    var playerState = PlayerState.GetByPlayerId(player.PlayerId);
+                    var isDead =
+                        player.Data.IsDead ||
+                        (playerState?.IsDead ?? false);
+
+                    if (!isDead)
+                    {
+                        return;
+                    }
+
+                    var trackedShapeshifting =
+                        Main.CheckShapeshift.TryGetValue(player.PlayerId, out var tracked) &&
+                        tracked;
+
+                    var nativeOutfitNotDefault =
+                        player.CurrentOutfitType != PlayerOutfitType.Default;
+
+                    if (!trackedShapeshifting && !nativeOutfitNotDefault)
+                    {
+                        return;
+                    }
+
+                    Logger.Info(
+                        $"PlayerId={player.PlayerId} | DataIsDead={player.Data.IsDead} | PlayerStateIsDead={playerState?.IsDead} | CurrentOutfitType={player.CurrentOutfitType} | TrackedShapeshifting={trackedShapeshifting}",
+                        "SHAPESHIFT_DEATH_OUTFIT_RESTORE_AB_V1");
+
+                    player.RpcShapeshift(player, false);
+                    Camouflage.RpcSetSkin(
+                        player,
+                        ForceRevert: true,
+                        RevertToDefault: true);
+                },
+                0.1f,
+                "ShapeshiftDeathOutfitRestoreABV1");
+        }
     }
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.ReportDeadBody))]
     class ReportDeadBodyPatch
@@ -394,6 +715,21 @@ namespace TownOfHostForE
                 Logger.Info($"{__instance.GetNameWithRole()}の通報をゲーム開始直後の強制会議前のためキャンセルしました。", "ReportDeadBody");
                 return false;
             }
+            // RENEGADE_R2A_GLOBAL_REPORT_BLOCK
+            // Host authority: 覚醒中は死体通報も緊急会議も全員拒否。
+            // reporter / ReportTarget / WaitReport / UsedButtonCount より前で止める。
+            if (AmongUsClient.Instance.AmHost &&
+                Renegade.IsAwakeningActive())
+            {
+                Logger.Warn(
+                    $"レネゲイド覚醒中のため通報/緊急会議を拒否: " +
+                    $"playerId={__instance.PlayerId} " +
+                    $"target={(target == null ? "BUTTON" : "BODY")}",
+                    "Renegade");
+
+                return false;
+            }
+
             reporter = __instance.Data;
             ReportTarget = target;
             Logger.Info($"{__instance.GetNameWithRole()} => {target?.Object?.GetNameWithRole() ?? "null"}", "ReportDeadBody");
@@ -417,6 +753,12 @@ namespace TownOfHostForE
 
             //通報者が死んでいる場合、本処理で会議がキャンセルされるのでここで止める
             if (__instance.Data.IsDead) return false;
+
+            // RENEGADE_EMERGENCY_INPUT_R1: first press is deferred for an offering candidate.
+            // A second press inside 3 seconds continues the existing normal meeting path exactly once.
+            // Keep this before SyncButtonMode / UsedButtonCount and every meeting side effect.
+            if (target == null && Renegade.ShouldBlockEmergency(__instance))
+                return false;
 
             if (Options.SyncButtonMode.GetBool() && target == null)
             {
@@ -585,6 +927,48 @@ namespace TownOfHostForE
                     var seer = PlayerControl.LocalPlayer;
                     var seerRole = seer.GetRoleClass();
                     var target = __instance;
+
+                    // EVILHACKER_SIMPLEADMIN_UI_AB_V2:
+                    // 毎frameの通常name/role描画より先にAdmin表示を退避する。
+                    var hasEvilHackerAdminDisplay = false;
+                    var evilHackerAdminDisplay = string.Empty;
+
+                    if (seer == target)
+                    {
+                        // Host-local:
+                        // Host内部の同じAdmin snapshotを直接取得する。
+                        if (
+                            seerRole is EvilHacker localEvilHacker &&
+                            localEvilHacker.TryGetRealtimeAdminSelfDisplay(
+                                out var hostLocalAdminDisplay)
+                        )
+                        {
+                            hasEvilHackerAdminDisplay = true;
+                            // EVILHACKER_AIRSHIP_LAYOUT_LOCAL_DEMO_AB_V6:
+                            // Airship host-local uses the all-room visual demo; other maps keep RealData.
+                            // Visual A/B only; network sender paths are unchanged.
+                            evilHackerAdminDisplay =
+                                hostLocalAdminDisplay;
+                        }
+                        // Remote MOD:
+                        // Hostからnative SetNameで届いた共通LiveTextを、
+                        // native Phantom OPEN状態の間だけ保持する。
+                        else if (
+                            EvilHackerTextMinimap.IsRealtimeAdminLiveText(
+                                target.cosmetics.nameText.text) &&
+                            target.Data?.Role is { } nativeRole &&
+                            nativeRole.Role == RoleTypes.Phantom &&
+                            nativeRole.TryCast<PhantomRole>(
+                                out var phantomRole) &&
+                            phantomRole.IsInvisible
+                        )
+                        {
+                            hasEvilHackerAdminDisplay = true;
+                            evilHackerAdminDisplay =
+                                target.cosmetics.nameText.text;
+                        }
+                    }
+
                     string RealName;
                     Mark.Clear();
                     Suffix.Clear();
@@ -610,7 +994,7 @@ namespace TownOfHostForE
 
                     //ハートマークを付ける(会議中MOD視点)
                     //if (__instance.Is(CustomRoles.Lovers) && PlayerControl.LocalPlayer.Is(CustomRoles.Lovers))
-                    if (LoversManager.CheckMyLovers(PlayerControl.LocalPlayer.PlayerId,__instance.PlayerId))
+                    if (LoversManager.CheckMyLovers(PlayerControl.LocalPlayer.PlayerId,__instance.PlayerId) || (PlayerControl.LocalPlayer.Is(CustomRoles.God) && __instance.Is(CustomRoles.Lovers)))
                     {
                         //Mark.Append($"<color={Utils.GetRoleColorCode(CustomRoles.Lovers)}>♥</color>");
                         Mark.Append($"<color=#{ColorUtility.ToHtmlStringRGB(LoversManager.GetLeaderColor(__instance.PlayerId))}>♥</color>");
@@ -709,6 +1093,18 @@ namespace TownOfHostForE
                         //役職テキストの座標を初期値に戻す
                         RoleText.transform.SetLocalY(0.3f);
                     }
+
+                    // EvilHacker SimpleAdmin OPEN中だけ、
+                    // 通常name/role/suffixの最終結果を共通LiveTextへ置換する。
+                    if (hasEvilHackerAdminDisplay)
+                    {
+                        target.cosmetics.nameText.text =
+                            evilHackerAdminDisplay;
+
+                        RoleText.text = string.Empty;
+                        RoleText.enabled = false;
+                        RoleText.transform.SetLocalY(0.3f);
+                    }
                 }
                 else
                 {
@@ -725,8 +1121,11 @@ namespace TownOfHostForE
             {
                 if (AmongUsClient.Instance.AmHost)
                 {
-                    // 死者の最終位置にペットが残るバグ対応
-                    __instance.RpcSetPet("");
+                    // DEAD_PET_IMMEDIATE_CLEANUP_V1:
+                    // Vanilla / MODを問わず死亡地点のPet表示を即時除去する。
+                    TownOfHostForE.Patches.PetSettings.RemoveDeadPetVisualReliable(
+                        __instance,
+                        "PlayerControl.Die");
                 }
             }
         }
@@ -770,28 +1169,39 @@ namespace TownOfHostForE
             if (AmongUsClient.Instance.AmHost)
             {
                 var user = __instance.myPlayer;
+                var renegadeLockdown =
+                    Renegade.IsAwakeningActive();
+
                 if (Options.CurrentGameMode == CustomGameMode.HideAndSeek && Options.IgnoreVent.GetBool())
                     __instance.RpcBootFromVent(id);
                 if (Options.CurrentGameMode == CustomGameMode.SuperBombParty)
                     __instance.RpcBootFromVent(id);
 
-                bool onEnterVentResult = user.GetCustomRole().IsNotAssignRoles() ? false : (!user.GetRoleClass()?.OnEnterVent(__instance, id) ?? false);
+                bool onEnterVentResult =
+                    renegadeLockdown
+                        ? true
+                        : user.GetCustomRole().IsNotAssignRoles()
+                            ? false
+                            : (!user.GetRoleClass()?.OnEnterVent(__instance, id) ?? false);
 
                 var forceBootByMode = Options.CurrentGameMode == CustomGameMode.HideAndSeek && Options.IgnoreVent.GetBool()
                     || Options.CurrentGameMode == CustomGameMode.SuperBombParty;
-                var blockedByRoleOrBase = onEnterVentResult ||
+                var blockedByRoleOrBase =
+                    renegadeLockdown ||
+                    onEnterVentResult ||
                     (user.Data.Role.Role != RoleTypes.Engineer && !user.CanUseImpostorVentButton());
                 // ROLEBUGTRACE_STAGE1B_PERMANENT: current source has no central ExitVent hook
                 RoleBugTrace.VentEnter(
                     user,
                     id,
                     !(forceBootByMode || blockedByRoleOrBase),
-                    forceBootByMode ? "GameMode" : (blockedByRoleOrBase ? "RoleOrBasePermission" : "Allowed"));
+                    renegadeLockdown
+                        ? "RenegadeAwakening"
+                        : forceBootByMode
+                            ? "GameMode"
+                            : (blockedByRoleOrBase ? "RoleOrBasePermission" : "Allowed"));
 
-                if (onEnterVentResult ||
-                    (user.Data.Role.Role != RoleTypes.Engineer && //エンジニアでなく
-                    !user.CanUseImpostorVentButton()) //インポスターベントも使えない
-                )
+                if (blockedByRoleOrBase)
                 {
                     _ = new LateTask(() =>
                     {
@@ -829,11 +1239,28 @@ namespace TownOfHostForE
 
             var roleClass = pc.GetRoleClass();
             var ret = true;
-            if (roleClass != null)
+            var renegadeLockdown =
+                Renegade.IsAwakeningActive();
+
+            // RENEGADE_R2G_TASK_ONLY_LOCKDOWN
+            // タスクそのものは進行させるが、役職固有のタスク完了能力は追跡中だけ発火させない。
+            // Workhorseだけは追加タスク数の既存ルールを壊さないため維持する。
+            if (!renegadeLockdown)
             {
-                ret = roleClass.OnCompleteTask();
+                if (roleClass != null)
+                {
+                    ret = roleClass.OnCompleteTask();
+                }
+
+                CompreteCrew.OnCompleteTask(pc);
             }
-            CompreteCrew.OnCompleteTask(pc);
+            else
+            {
+                Logger.Info(
+                    $"R2G awakened chase: role task-complete hooks suppressed player={pc.PlayerId}",
+                    "Renegade");
+            }
+
             ret &= Workhorse.OnCompleteTask(pc);
 
             Utils.NotifyRoles();
@@ -875,7 +1302,22 @@ namespace TownOfHostForE
             if (!ShipStatus.Instance.enabled) return true;
             if (roleType is RoleTypes.CrewmateGhost or RoleTypes.ImpostorGhost)
             {
-                var targetIsKiller = target.GetRoleClass() is IKiller;
+                // HOST_EXILE_REMOTE_VANILLA_CRITICAL_LEASE_AB_V3:
+                // Safety role + SetIsDead送信後、host Ghost Roleを配る直前に
+                // 必要viewerの既存safety dummyだけを+2s finalizerまでleaseする。
+                // PERSISTENT_LEASE_REMOTE_MOD_CALL_AB_V8L: Hostまたは認識済みremote MOD追放でlease準備を呼ぶ。
+                if (target.AmOwner || target.IsModClient())
+                {
+                    ExileControllerWrapUpPatch.VanillaActualExileCriticalLeaseAbV14A
+                        .TryPrepareHostExileSafetyDummyLeaseAbV3(target);
+                }
+
+                // RENEGADE_R2C_CREWMATE_GHOST
+                // Renegade is an IKiller only while awakened, but must not inherit
+                // ImpostorGhost UI (especially Sabotage) after timeout death.
+                var targetIsKiller =
+                    target.GetRoleClass() is IKiller &&
+                    !target.Is(CustomRoles.Renegade);
                 var ghostRoles = new Dictionary<PlayerControl, RoleTypes>();
                 foreach (var seer in Main.AllPlayerControls)
                 {
@@ -887,14 +1329,17 @@ namespace TownOfHostForE
                             ? RoleTypes.ImpostorGhost
                             : RoleTypes.CrewmateGhost;
 
-                    // HOST_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V2:
+                    // MOD_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V7:
+            // v2のHost実追放ghost guardを、remote認識済みMOD導入者の実追放にも拡張する。
+            // remote Vanilla viewerだけ、初回Ghost配布時点でImpostorGhostをCrewmateGhostへ安全化する。
+            // HOST_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V2:
                     // 4-15人real-targeted実追放中のMODホスト追放だけを対象にする。
                     // remote VanillaだけImpostorGhostをCrewmateGhostへ安全化する。
                     // 通常死亡・MOD viewer・Vanilla本人追放(V14A)には影響させない。
                     if (viewerGhostRole == RoleTypes.ImpostorGhost &&
                         AmongUsClient.Instance.AmHost &&
                         AntiBlackout.IsRealExileDisplaySafetyAppliedPermanent &&
-                        target.AmOwner &&
+                        (target.AmOwner || target.IsModClient()) &&
                         seer.PlayerId != target.PlayerId &&
                         !seer.AmOwner &&
                         !seer.IsModClient() &&
@@ -906,8 +1351,8 @@ namespace TownOfHostForE
                         actualExileLedger.ActualExiledPlayerId == target.PlayerId)
                     {
                         Logger.Info(
-                            $"Stage=REMOTE_VANILLA_HOST_EXILE_GHOST_GUARD | TargetId={target.PlayerId} | ViewerId={seer.PlayerId} | ViewerClientId={seer.GetClientId()} | Intended=ImpostorGhost | Applied=CrewmateGhost",
-                            "HOST_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V2");
+                            $"Stage=REMOTE_VANILLA_MOD_EXILE_GHOST_GUARD | TargetId={target.PlayerId} | ViewerId={seer.PlayerId} | ViewerClientId={seer.GetClientId()} | Intended=ImpostorGhost | Applied=CrewmateGhost",
+                            "MOD_EXILE_REMOTE_VANILLA_GHOST_GUARD_AB_V7");
 
                         viewerGhostRole = RoleTypes.CrewmateGhost;
                     }

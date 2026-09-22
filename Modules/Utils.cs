@@ -391,6 +391,14 @@ namespace TownOfHostForE
         }
         public static string GetRoleName(CustomRoles role)
         {
+            // VANILLA_INTRO_NATIVE_ROLE_NAME_ALIAS_AB_V1
+            if (role == CustomRoles.Phantom)
+                return Translator.GetRoleString("PhantomRole");
+            if (role == CustomRoles.Tracker)
+                return Translator.GetRoleString("TrackerRole");
+            if (role == CustomRoles.Noisemaker)
+                return Translator.GetRoleString("NoisemakerRole");
+
             return GetRoleString(Enum.GetName(typeof(CustomRoles), role));
         }
         public static string GetAddonAbilityInfo(CustomRoles role)
@@ -1177,6 +1185,7 @@ namespace TownOfHostForE
         {
             if (!AmongUsClient.Instance.AmHost) return;
             if (Main.AllPlayerControls == null) return;
+            if (!StartFlowReadiness.CanNotifyRoles()) return;
 
             //ミーティング中の呼び出しは不正
             if (GameStates.IsMeeting) return;
@@ -1206,7 +1215,7 @@ namespace TownOfHostForE
                 if (seer.IsModClient()) continue;
                 var seerRole = seer.GetRoleClass();
                 string fontSize = isForMeeting ? "1.5" : Main.RoleTextSize.ToString();
-                if (isForMeeting && (seer.GetClient().PlatformData.Platform is Platforms.Playstation or Platforms.Switch)) fontSize = "70%";
+                if (isForMeeting && (seer.GetClient()?.PlatformData?.Platform is Platforms.Playstation or Platforms.Switch)) fontSize = "70%";
                 logger.Info("NotifyRoles-Loop1-" + seer.GetNameWithRole() + ":START");
 
                 // 会議じゃなくて，キノコカオス中で，seerが生きていてdesyncインポスターの場合に自身の名前を消す
@@ -1311,6 +1320,16 @@ namespace TownOfHostForE
                     //SelfName = MeetingDisplayText.AddTextForVanilla(seer, SelfName, SelfSuffix.ToString(), SelfRoleName, isForMeeting);
                     SelfName = MeetingDisplay.SetDisplayForVanilla(seer,seer, SelfName, SelfSuffix.ToString(), SelfRoleName, isForMeeting);
 
+                    // EVILHACKER_SIMPLEADMIN_FINAL_UI_AB_V1:
+                    // OPEN中のEvilHacker本人だけ、通常role/name/suffixをAdmin盤面へ置換する。
+                    // 他player・meeting・通常時の表示には触れない。
+                    if (!isForMeeting &&
+                        seerRole is TownOfHostForE.Roles.Impostor.EvilHacker evilHackerRole &&
+                        evilHackerRole.TryGetRealtimeAdminSelfDisplay(out var evilHackerAdminDisplay))
+                    {
+                        SelfName = evilHackerAdminDisplay;
+                    }
+
                     //適用
                     seer.RpcSetNamePrivate(SelfName, true, force: NoCache);
                 }
@@ -1373,7 +1392,7 @@ namespace TownOfHostForE
                             TargetMark.Append(CustomRoleManager.GetMarkOthers(seer, target, isForMeeting));
 
                             //ハートマークを付ける(相手に)
-                            if (LoversManager.CheckMyLovers(seer.PlayerId, target.PlayerId))
+                            if (LoversManager.CheckMyLovers(seer.PlayerId, target.PlayerId) || (seer.Is(CustomRoles.God) && target.Is(CustomRoles.Lovers)))
                             {
                                 //TargetMark.Append($"<color={GetRoleColorCode(CustomRoles.Lovers)}>♥</color>");
                                 TargetMark.Append($"<color=#{ColorUtility.ToHtmlStringRGB(LoversManager.GetLeaderColor(target.PlayerId))}>♥</color>");
@@ -1476,7 +1495,15 @@ namespace TownOfHostForE
         /// </summary>
         public static void JoinLobbyModInfo(ClientData client)
         {
-            SendMessage($"TOH4Eへようこそ！\n本部屋ではTownOfHostForEというModを導入して遊んでおります。\n現在AmongUsでは公開ルームでのMod利用が出来ません。<color=#FF0000>公開ルームからのMod部屋への誘導もおやめください。</color>\nもし誘導や勧誘などを確認した場合はスクリーンショットと合わせて開発者まで問い合わせをお願い致します。\n\n{GetString("Message.JoinCommandListGuide")}", client.Character.PlayerId, $"<color={Main.ModColor}>TownOfHost ForE</color>へようこそ！",false);
+            // JOIN_LOBBY_INFO_RICHTEXT_RESTORE_V317:
+            // authored textは従来の #FFD966 / #FF0000 を保持する。
+            // 公式サーバー時だけChatCommand側でdigit-safe named colorへ輸送変換する。
+            EnqueueSystemMessage(
+                $"本部屋ではTownOfHostForE EMを使用しています。\n※TOH / TOH4Eとは異なるMODです。\n<color=#FFD966><b>※このMODはTOH4EのプライベートフォークMODです。</b></color>\n現在Among Usでは公開ルームでMODを利用できません。<color=#FF0000>公開ルームからMOD部屋への誘導もおやめください。</color>\n誘導・勧誘を確認した場合は、スクリーンショットを添えて開発者へご連絡ください。\n\n{GetString("Message.JoinCommandListGuide")}",
+                client.Character.PlayerId,
+                $"<color={Main.ModColor}>Town Of Host For E EM</color>へようこそ！",
+                false,
+                SystemMessageKind.JoinLobbyInfo);
 
             // CreatePlayer側の既存3秒遅延後なのでVersion handshakeの判定時間を確保済み。
             ApplyVanillaHostModVersionDisplay(seer: client.Character, force: true);

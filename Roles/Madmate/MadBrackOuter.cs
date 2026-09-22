@@ -35,15 +35,19 @@ public sealed class MadBrackOuter : RoleBase
     {
         if (!AmongUsClient.Instance.AmHost) return true;
 
-        MessageWriter SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, Player.GetClientId());
-        SabotageFixWriter.Write((byte)SystemTypes.Electrical);
-        SabotageFixWriter.WriteNetObject(Player);
-        AmongUsClient.Instance.FinishRpcImmediately(SabotageFixWriter);
+        if (Player.TryGetClientId(out var playerClientId))
+        {
+            MessageWriter SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, playerClientId);
+            SabotageFixWriter.Write((byte)SystemTypes.Electrical);
+            SabotageFixWriter.WriteNetObject(Player);
+            AmongUsClient.Instance.FinishRpcImmediately(SabotageFixWriter);
+        }
 
         foreach (var target in Main.AllPlayerControls)
         {
             if (target == Player || target.Data.Disconnected) continue;
-            SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, target.GetClientId());
+            if (!target.TryGetClientId(out var clientId)) continue;
+            MessageWriter SabotageFixWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, clientId);
             SabotageFixWriter.Write((byte)SystemTypes.Electrical);
             SabotageFixWriter.WriteNetObject(target);
             AmongUsClient.Instance.FinishRpcImmediately(SabotageFixWriter);

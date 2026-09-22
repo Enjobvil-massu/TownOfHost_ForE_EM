@@ -24,6 +24,7 @@ namespace TownOfHostForE
     {
         NormalMessage,
         RoleHelp,
+        JoinLobbyInfo,
     }
 
     [BepInPlugin(PluginGuid, "Town Of Host For E EM", PluginVersion)]
@@ -97,8 +98,8 @@ namespace TownOfHostForE
         public static string ExceptionMessage;
         public static bool ExceptionMessageIsShown = false;
         public static string credentialsText;
-        public static NormalGameOptionsV10 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
-        public static HideNSeekGameOptionsV10 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
+        public static NormalGameOptionsV11 NormalOptions => GameOptionsManager.Instance.currentNormalGameOptions;
+        public static HideNSeekGameOptionsV11 HideNSeekSOptions => GameOptionsManager.Instance.currentHideNSeekGameOptions;
         //Client Options
         public static ConfigEntry<string> HideName { get; private set; }
         public static ConfigEntry<string> HideColor { get; private set; }
@@ -117,6 +118,10 @@ namespace TownOfHostForE
         //Other Configs
         public static ConfigEntry<string> WebhookURL { get; private set; }
         public static ConfigEntry<string> BetaBuildURL { get; private set; }
+        // EM_SAFE_INGAME_UPDATER_V1:
+        // 例: https://updates.example.jp/toh4e/stable/
+        // 既定値はEM配布サーバー。ユーザーが空欄へ変更した場合は通信せず通常起動を継続する。
+        public static ConfigEntry<string> UpdateBaseURL { get; private set; }
         public static ConfigEntry<float> LastKillCooldown { get; private set; }
         public static ConfigEntry<float> LastShapeshifterCooldown { get; private set; }
         public static OptionBackupData RealOptionsData;
@@ -186,6 +191,7 @@ namespace TownOfHostForE
             ForceJapanese = Config.Bind("Client Options", "Force Japanese", false);
             JapaneseRoleName = Config.Bind("Client Options", "Japanese Role Name", true);
             DebugKeyInput = Config.Bind("Authentication", "Debug Key", "");
+            UpdateBaseURL = Config.Bind("Updater", "Base URL", "https://www.enjobvil.com/amongus/TOH4E_EM_Update/");
             ShowResults = Config.Bind("Result", "Show Results", true);
 
             Logger = BepInEx.Logging.Logger.CreateLogSource("TOH4E");
@@ -380,6 +386,9 @@ namespace TownOfHostForE
         DeathGame = CustomRoles.DarkGameMaster,
         // GOD_CUSTOM_WINNER_PERMANENT
         God = CustomRoles.God,
+
+        // RENEGADE_R2G_CUSTOM_WINNER
+        Renegade = CustomRoles.Renegade,
 
         HASTroll = CustomRoles.HASTroll,
 

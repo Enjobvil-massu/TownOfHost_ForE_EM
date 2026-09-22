@@ -11,9 +11,21 @@ namespace TownOfHostForE
     //参考元 : https://github.com/ykundesu/SuperNewRoles/blob/master/SuperNewRoles/Mode/SuperHostRoles/BlockTool.cs
     class DisableDevice
     {
-        public static bool DoDisable => Options.DisableDevices.GetBool() || Options.IsStandardHAS || IsPoorEnable();
+        public static bool DoDisable => Options.DisableDevices.GetBool() || Options.TimeLimitDevices.GetBool() || Options.IsStandardHAS || IsPoorEnable();
         private static List<byte> DesyncComms = new();
         private static int frame = 0;
+
+        // DEVICE_TIME_LIMIT_PORT_V21
+        public static float GameAdminTimer = 0f;
+        public static float GameLogAndCamTimer = 0f;
+        public static float GameVitalTimer = 0f;
+
+        // SecurityCameraSystemType active-user count.
+        public static int UseCount = 0;
+
+        private static readonly Dictionary<byte, Vector2> AdminTimeLimitPositions = new();
+        private static readonly Dictionary<byte, Vector2> LogTimeLimitPositions = new();
+        private static readonly Dictionary<byte, Vector2> VitalTimeLimitPositions = new();
         public static readonly Dictionary<string, Vector2> DevicePos = new()
         {
             ["SkeldAdmin"] = new(3.48f, -8.62f),
@@ -59,8 +71,420 @@ namespace TownOfHostForE
             }
             return false;
         }
+        // ====================================================================
+        // DEVICE_TIME_LIMIT_PORT_V21
+        // ====================================================================
+
+        [Attributes.GameModuleInitializer]
+        public static void ResetDeviceTimeLimit()
+        {
+            GameAdminTimer = 0f;
+            GameLogAndCamTimer = 0f;
+            GameVitalTimer = 0f;
+            UseCount = 0;
+
+            AdminTimeLimitPositions.Clear();
+            LogTimeLimitPositions.Clear();
+            VitalTimeLimitPositions.Clear();
+        }
+
+        public static void StartMeetingTimeLimit()
+        {
+            // Game-wide elapsed timers survive meetings.
+            AdminTimeLimitPositions.Clear();
+            LogTimeLimitPositions.Clear();
+            VitalTimeLimitPositions.Clear();
+            UseCount = 0;
+        }
+
+        public static bool IsAdminTimeLimitExpired()
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return false;
+
+            float limit = Options.TimeLimitAdmin.GetFloat();
+            return limit > 0f && GameAdminTimer >= limit;
+        }
+
+        public static bool IsCameraTimeLimitExpired()
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return false;
+
+            float limit = Options.TimeLimitCamAndLog.GetFloat();
+            return limit > 0f && GameLogAndCamTimer >= limit;
+        }
+
+        public static bool IsVitalTimeLimitExpired()
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return false;
+
+            float limit = Options.TimeLimitVital.GetFloat();
+            return limit > 0f && GameVitalTimer >= limit;
+        }
+
+        private static void ConsumeTimer(
+            ref float elapsed,
+            float limit,
+            float delta)
+        {
+            // zero = infinity
+            if (limit <= 0f ||
+                delta <= 0f ||
+                elapsed >= limit)
+            {
+                return;
+            }
+
+            elapsed = Mathf.Min(limit, elapsed + delta);
+        }
+
+        public static void ConsumeAdminTime(float delta)
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return;
+
+            ConsumeTimer(
+                ref GameAdminTimer,
+                Options.TimeLimitAdmin.GetFloat(),
+                delta);
+        }
+
+        public static void ConsumeLogAndCamTime(float delta)
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return;
+
+            ConsumeTimer(
+                ref GameLogAndCamTimer,
+                Options.TimeLimitCamAndLog.GetFloat(),
+                delta);
+        }
+
+        public static void ConsumeVitalTime(float delta)
+        {
+            if (!Options.TimeLimitDevices.GetBool()) return;
+
+            ConsumeTimer(
+                ref GameVitalTimer,
+                Options.TimeLimitVital.GetFloat(),
+                delta);
+        }
+
+        private static bool ConsumeStationaryTimer(
+            Dictionary<byte, Vector2> positions,
+            PlayerControl pc,
+            Vector2 position,
+            ref float elapsed,
+            float limit)
+        {
+            if (limit <= 0f)
+            {
+                positions.Remove(pc.PlayerId);
+                return false;
+            }
+
+            if (elapsed >= limit)
+            {
+                return true;
+            }
+
+            if (positions.TryGetValue(pc.PlayerId, out var oldPosition))
+            {
+                if (oldPosition == position)
+                {
+                    // DisableDevice.FixedUpdate executes this path once
+                    // every four fixed ticks.
+                    ConsumeTimer(
+                        ref elapsed,
+                        limit,
+                        Time.fixedDeltaTime * 4f);
+                }
+                else
+                {
+                    positions[pc.PlayerId] = position;
+                }
+            }
+            else
+            {
+                positions.TryAdd(pc.PlayerId, position);
+            }
+
+            return elapsed >= limit;
+        }
+
+        private static void ClearTimeLimitTracking(byte playerId)
+        {
+            AdminTimeLimitPositions.Remove(playerId);
+            LogTimeLimitPositions.Remove(playerId);
+            VitalTimeLimitPositions.Remove(playerId);
+        }
+
+        private static bool ApplyVanillaTimeLimit(
+            PlayerControl pc,
+            Vector2 playerPosition,
+            bool alreadyBlocked)
+        {
+            if (!Options.TimeLimitDevices.GetBool() ||
+                !pc.IsAlive() ||
+                pc.inVent ||
+                !GameStates.IsInTask ||
+                Utils.IsActive(SystemTypes.Comms))
+            {
+                ClearTimeLimitTracking(pc.PlayerId);
+                return false;
+            }
+
+            float usableDistance = UsableDistance();
+
+            bool adminNear = false;
+            bool logNear = false;
+            bool cameraNear = false;
+            bool vitalNear = false;
+
+            switch ((MapNames)Main.NormalOptions.MapId)
+            {
+                case MapNames.Skeld:
+                    adminNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["SkeldAdmin"]) <= usableDistance;
+
+                    cameraNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["SkeldCamera"]) <= usableDistance;
+                    break;
+
+                case MapNames.MiraHQ:
+                    adminNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["MiraHQAdmin"]) <= usableDistance;
+
+                    logNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["MiraHQDoorLog"]) <= usableDistance;
+                    break;
+
+                case MapNames.Polus:
+                    adminNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["PolusLeftAdmin"]) <= usableDistance ||
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["PolusRightAdmin"]) <= usableDistance;
+
+                    cameraNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["PolusCamera"]) <= usableDistance;
+
+                    vitalNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["PolusVital"]) <= usableDistance;
+                    break;
+
+                case MapNames.Airship:
+                    adminNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["AirshipCockpitAdmin"]) <= usableDistance ||
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["AirshipRecordsAdmin"]) <= usableDistance;
+
+                    cameraNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["AirshipCamera"]) <= usableDistance;
+
+                    vitalNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["AirshipVital"]) <= usableDistance;
+                    break;
+
+                case MapNames.Fungle:
+                    vitalNear =
+                        Vector2.Distance(
+                            playerPosition,
+                            DevicePos["FungleVital"]) <= usableDistance;
+                    break;
+            }
+
+            bool timerBlocked = false;
+
+            if (adminNear && !alreadyBlocked)
+            {
+                timerBlocked |= ConsumeStationaryTimer(
+                    AdminTimeLimitPositions,
+                    pc,
+                    playerPosition,
+                    ref GameAdminTimer,
+                    Options.TimeLimitAdmin.GetFloat());
+            }
+            else
+            {
+                AdminTimeLimitPositions.Remove(pc.PlayerId);
+            }
+
+            // MIRA HQ Doorlog shares Camera/Doorlog time.
+            if (logNear && !alreadyBlocked)
+            {
+                timerBlocked |= ConsumeStationaryTimer(
+                    LogTimeLimitPositions,
+                    pc,
+                    playerPosition,
+                    ref GameLogAndCamTimer,
+                    Options.TimeLimitCamAndLog.GetFloat());
+            }
+            else
+            {
+                LogTimeLimitPositions.Remove(pc.PlayerId);
+            }
+
+            // Camera elapsed time itself is measured by the native
+            // SecurityCameraSystemType active-user count.
+            if (cameraNear && IsCameraTimeLimitExpired())
+            {
+                timerBlocked = true;
+            }
+
+            if (vitalNear && !alreadyBlocked)
+            {
+                timerBlocked |= ConsumeStationaryTimer(
+                    VitalTimeLimitPositions,
+                    pc,
+                    playerPosition,
+                    ref GameVitalTimer,
+                    Options.TimeLimitVital.GetFloat());
+            }
+            else
+            {
+                VitalTimeLimitPositions.Remove(pc.PlayerId);
+            }
+
+            return timerBlocked;
+        }
+
+        private static void TickCameraTimeLimit()
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !GameStates.IsInTask ||
+                UseCount <= 0)
+            {
+                return;
+            }
+
+            // Shared camera time is consumed once per active user.
+            ConsumeLogAndCamTime(
+                Time.fixedDeltaTime * UseCount);
+        }
+
+        private static string FormatRemainingTime(
+            float limit,
+            float elapsed)
+        {
+            if (limit <= 0f)
+            {
+                return "\u221E";
+            }
+
+            float remaining =
+                Mathf.Max(0f, limit - elapsed);
+
+            if (remaining <= 0f)
+            {
+                return "0.0秒";
+            }
+
+            // 0.1-second CEILING.
+            // The epsilon prevents normal float noise from making,
+            // for example, 18.40000 display as 18.5.
+            int tenths =
+                Mathf.Max(
+                    1,
+                    Mathf.CeilToInt(
+                        Mathf.Max(
+                            0f,
+                            remaining - 0.0001f
+                        ) * 10f
+                    )
+                );
+
+            return $"{tenths / 10}.{tenths % 10}秒";
+        }
+
+        private static string TimePart(
+            string labelKey,
+            float limit,
+            float elapsed)
+        {
+            return
+                Translator.GetString(labelKey) +
+                " " +
+                FormatRemainingTime(limit, elapsed);
+        }
+
+        public static string GetMeetingTimeLimitText()
+        {
+            if (!Options.TimeLimitDevices.GetBool() ||
+                !Options.ShowDeviceTimeLimitInMeeting.GetBool())
+            {
+                return "";
+            }
+
+            string admin =
+                TimePart(
+                    "DeviceTimeLimitAdminLabel",
+                    Options.TimeLimitAdmin.GetFloat(),
+                    GameAdminTimer);
+
+            string camera =
+                TimePart(
+                    "DeviceTimeLimitCameraLabel",
+                    Options.TimeLimitCamAndLog.GetFloat(),
+                    GameLogAndCamTimer);
+
+            string doorlog =
+                TimePart(
+                    "DeviceTimeLimitDoorLogLabel",
+                    Options.TimeLimitCamAndLog.GetFloat(),
+                    GameLogAndCamTimer);
+
+            string vital =
+                TimePart(
+                    "DeviceTimeLimitVitalLabel",
+                    Options.TimeLimitVital.GetFloat(),
+                    GameVitalTimer);
+
+            return (MapNames)Main.NormalOptions.MapId switch
+            {
+                MapNames.Skeld =>
+                    $"{admin} ｜ {camera}\n<color=#00000000>.</color>",
+
+                MapNames.MiraHQ =>
+                    $"{admin} ｜ {doorlog}\n<color=#00000000>.</color>",
+
+                MapNames.Polus =>
+                    $"{admin} ｜ {camera}\n{vital}\n<color=#00000000>.</color>",
+
+                MapNames.Airship =>
+                    $"{admin} ｜ {camera}\n{vital}\n<color=#00000000>.</color>",
+
+                MapNames.Fungle =>
+                    $"{vital}\n<color=#00000000>.</color>",
+
+                _ => "",
+            };
+        }
         public static void FixedUpdate()
         {
+            // Camera use must be integrated every fixed tick rather than
+            // only once every four ticks.
+            TickCameraTimeLimit();
+
             frame = frame == 3 ? 0 : ++frame;
             if (frame != 0) return;
 
@@ -128,6 +552,19 @@ namespace TownOfHostForE
                         }
                     }
                     doComms &= !ignore;
+
+                    // DEVICE_TIME_LIMIT_PORT_V21
+                    // This path is Vanilla-only because the existing
+                    // pc.IsModClient() skip above remains unchanged.
+                    bool timerComms =
+                        pc != PlayerControl.LocalPlayer &&
+                        ApplyVanillaTimeLimit(
+                            pc,
+                            PlayerPos,
+                            doComms);
+
+                    doComms |= timerComms;
+
                     if (doComms && !pc.inVent && GameStates.IsInTask)
                     {
                         if (!DesyncComms.Contains(pc.PlayerId))
@@ -216,6 +653,137 @@ namespace TownOfHostForE
                         consoles.DoIf(x => x.name == "VitalsConsole", x => x.GetComponent<Collider2D>().enabled = ignore);
                     }
                     break;
+            }
+        }
+    }
+    // ========================================================================
+    // DEVICE_TIME_LIMIT_PORT_V21 - host local minigame enforcement
+    // ========================================================================
+
+    [HarmonyPatch(typeof(MapCountOverlay), nameof(MapCountOverlay.Update))]
+    class DeviceTimeLimitAdminPatch
+    {
+        public static void Prefix(MapCountOverlay __instance)
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !GameStates.IsInTask ||
+                !PlayerControl.LocalPlayer.IsAlive() ||
+                !MapBehaviour.Instance ||
+                !__instance)
+            {
+                return;
+            }
+
+            if (DisableDevice.IsAdminTimeLimitExpired())
+            {
+                MapBehaviour.Instance.Close();
+                return;
+            }
+
+            DisableDevice.ConsumeAdminTime(Time.deltaTime);
+
+            if (DisableDevice.IsAdminTimeLimitExpired())
+            {
+                MapBehaviour.Instance.Close();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(VitalsMinigame), nameof(VitalsMinigame.Update))]
+    class DeviceTimeLimitVitalsPatch
+    {
+        public static void Postfix(VitalsMinigame __instance)
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !GameStates.IsInTask ||
+                !PlayerControl.LocalPlayer.IsAlive() ||
+                !__instance)
+            {
+                return;
+            }
+
+            if (DisableDevice.IsVitalTimeLimitExpired())
+            {
+                __instance.Close();
+                return;
+            }
+
+            DisableDevice.ConsumeVitalTime(Time.deltaTime);
+
+            if (DisableDevice.IsVitalTimeLimitExpired())
+            {
+                __instance.Close();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(SecurityLogGame), nameof(SecurityLogGame.Update))]
+    class DeviceTimeLimitDoorLogPatch
+    {
+        public static void Postfix(SecurityLogGame __instance)
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !GameStates.IsInTask ||
+                !PlayerControl.LocalPlayer.IsAlive() ||
+                !__instance)
+            {
+                return;
+            }
+
+            if (DisableDevice.IsCameraTimeLimitExpired())
+            {
+                __instance.Close();
+                return;
+            }
+
+            DisableDevice.ConsumeLogAndCamTime(Time.deltaTime);
+
+            if (DisableDevice.IsCameraTimeLimitExpired())
+            {
+                __instance.Close();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(PlanetSurveillanceMinigame), nameof(PlanetSurveillanceMinigame.Update))]
+    class DeviceTimeLimitPlanetCameraPatch
+    {
+        public static void Postfix(PlanetSurveillanceMinigame __instance)
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !PlayerControl.LocalPlayer.IsAlive() ||
+                !__instance)
+            {
+                return;
+            }
+
+            if (DisableDevice.IsCameraTimeLimitExpired())
+            {
+                __instance.Close();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(SurveillanceMinigame), nameof(SurveillanceMinigame.Update))]
+    class DeviceTimeLimitCameraPatch
+    {
+        public static void Postfix(SurveillanceMinigame __instance)
+        {
+            if (!AmongUsClient.Instance.AmHost ||
+                !Options.TimeLimitDevices.GetBool() ||
+                !PlayerControl.LocalPlayer.IsAlive() ||
+                !__instance)
+            {
+                return;
+            }
+
+            if (DisableDevice.IsCameraTimeLimitExpired())
+            {
+                __instance.Close();
             }
         }
     }

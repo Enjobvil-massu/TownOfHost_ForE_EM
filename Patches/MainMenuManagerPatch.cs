@@ -31,10 +31,9 @@ namespace TownOfHostForE
     {
         private static PassiveButton template;
         private static PassiveButton discordButton;
-        private static PassiveButton twitterButton;
-        private static PassiveButton YouTubeButton;
         private static PassiveButton gitHubButton;
         public static SimpleButton UpdateButton { get; private set; }
+        private static SimpleButton UpdateNotificationBadge { get; set; }
 
         [HarmonyPatch(nameof(MainMenuManager.Start)), HarmonyPostfix, HarmonyPriority(Priority.Normal)]
         public static void StartPostfix(MainMenuManager __instance)
@@ -43,23 +42,26 @@ namespace TownOfHostForE
             if (template == null) template = __instance.quitButton;
             if (template == null) return;
 
-            //Updateボタンを生成
+            // EM_UPDATER_LEFT_OF_GITHUB_BADGE_V1:
+            // UpdateはGitHubの左隣、同じ高さ・同じサイズで常時表示する。
             if (SimpleButton.IsNullOrDestroyed(UpdateButton))
             {
                 UpdateButton = CreateButton(
                     "UpdateButton",
-                    new(0f, -1.3f, 1f),
+                    new(-2.0f, -2.0f, 0f),
                     new(0, 202, 255, byte.MaxValue),
                     new(60, 255, 255, byte.MaxValue),
-                    () =>
-                    {
-                        UpdateButton.Button.gameObject.SetActive(false);
-                        ModUpdater.StartUpdate(ModUpdater.downloadUrl);
-                    },
-                    $"{Translator.GetString("updateButton")}\n{ModUpdater.latestTitle}",
-                    new(2.5f, 1f),
-                    isActive: false);
+                    () => ModUpdater.ShowReleaseList(),
+                    Translator.GetString("updateButton"),
+                    new(1.9f, 0.725f),
+                    isActive: true);
+
+                // EM_UPDATER_LABEL_SIZE_V2: ボタン本体は変えず、ラベルだけ約15%縮小。
+                UpdateButton.Label.fontSize *= 0.85f;
             }
+
+            EnsureUpdateNotificationBadge();
+            SetUpdateNotificationBadge(false);
 
             //Discordボタンを生成
             if (discordButton == null)
@@ -75,39 +77,15 @@ namespace TownOfHostForE
             }
             discordButton.gameObject.SetActive(Main.ShowDiscordButton);
 
-            // Twitterボタンを生成
-            if (twitterButton == null)
-            {
-                twitterButton = CreateButton(
-                    "TwitterButton",
-                    new(-0.85f, -2.6f, 0f),
-                    new(29, 160, 241, byte.MaxValue),
-                    new(169, 215, 242, byte.MaxValue),
-                    () => Application.OpenURL("https://twitter.com/TOH4E_AmongUs"),
-                    "Twitter",
-                    new(1.9f, 0.725f));
-            }
-            // WIKIWIKIボタンを生成
-            if (YouTubeButton == null)
-            {
-                YouTubeButton = CreateButton(
-                    "YouTubeButton",
-                    new(0.85f, -2.6f, 0),
-                    new(196, 48, 43, byte.MaxValue),
-                    new(200, 50, 50, byte.MaxValue),
-                    () => Application.OpenURL("https://www.youtube.com/channel/UCJDcUf0KOwLFGwVmj1m6Fag"),
-                    "YouTube",
-                    new(1.9f, 0.725f));
-            }
             // GitHubボタンを生成
             if (gitHubButton == null)
             {
                 gitHubButton = CreateButton(
                     "GitHubButton",
-                    new(-0.85f, -2f, 0),
+                    new(0f, -2.0f, 0),
                     new(161, 161, 161, byte.MaxValue),
                     new(209, 209, 209, byte.MaxValue),
-                    () => Application.OpenURL("https://github.com/AsumuAkaguma/TownOfHost_ForE"),
+                    () => Application.OpenURL("https://github.com/Enjobvil-massu/TownOfHost_ForE_EM"),
                     "GitHub",
                     new(1.9f, 0.725f));
             }
@@ -198,6 +176,53 @@ namespace TownOfHostForE
                 button.Scale = scale.Value;
             }
             return button;
+        }
+
+        private static void EnsureUpdateNotificationBadge()
+        {
+            if (SimpleButton.IsNullOrDestroyed(UpdateButton))
+            {
+                return;
+            }
+
+            if (!SimpleButton.IsNullOrDestroyed(UpdateNotificationBadge))
+            {
+                return;
+            }
+
+            // EM_UPDATER_BADGE_POSITION_V360: Updateボタン上枠に少しかかる位置へ「更新あり ↓」を表示する。
+            UpdateNotificationBadge = CreateButton(
+                "UpdateNotificationBadge",
+                new(-2.0f, -1.64f, -0.1f),
+                new(220, 35, 35, byte.MaxValue),
+                new(220, 35, 35, byte.MaxValue),
+                () => { },
+                "更新あり ↓",
+                new(1.25f, 0.34f),
+                isActive: false);
+
+            UpdateNotificationBadge.FontSize = 1.45f;
+            UpdateNotificationBadge.Label.color = Color.white;
+            UpdateNotificationBadge.Label.fontStyle = FontStyles.Bold;
+            UpdateNotificationBadge.NormalSprite.sortingOrder = UpdateButton.NormalSprite.sortingOrder + 20;
+            UpdateNotificationBadge.HoverSprite.sortingOrder = UpdateButton.HoverSprite.sortingOrder + 20;
+            UpdateNotificationBadge.Label.sortingOrder = UpdateNotificationBadge.NormalSprite.sortingOrder + 1;
+
+            var badgeCollider = UpdateNotificationBadge.Button.GetComponent<BoxCollider2D>();
+            if (badgeCollider != null)
+            {
+                badgeCollider.enabled = false;
+            }
+        }
+
+        public static void SetUpdateNotificationBadge(bool visible)
+        {
+            EnsureUpdateNotificationBadge();
+
+            if (!SimpleButton.IsNullOrDestroyed(UpdateNotificationBadge))
+            {
+                UpdateNotificationBadge.Button.gameObject.SetActive(visible);
+            }
         }
 
         // プレイメニュー，アカウントメニュー，クレジット画面が開かれたらロゴとボタンを消す

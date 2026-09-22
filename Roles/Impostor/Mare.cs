@@ -54,7 +54,9 @@ public sealed class Mare : RoleBase, IImpostor
     {
         OptionSpeedInLightsOut = FloatOptionItem.Create(RoleInfo, 10, OptionName.MareAddSpeedInLightsOut, new(0.1f, 0.5f, 0.1f), 0.3f, false)
         .SetValueFormat(OptionFormat.Multiplier);
-            OptionKillCooldownInLightsOut = FloatOptionItem.Create(RoleInfo, 11, OptionName.MareKillCooldownInLightsOut, new(2.5f, 180f, 2.5f), 15f, false)
+            OptionKillCooldownInLightsOut = FloatOptionItem.Create(RoleInfo, 11, OptionName.MareKillCooldownInLightsOut, new(2.5f, 180f, 0.5f), 15f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
     }
     public bool CanUseKillButton() => IsActivateKill;

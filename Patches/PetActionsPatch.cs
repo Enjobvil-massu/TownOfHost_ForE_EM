@@ -138,12 +138,25 @@ if (!AmongUsClient.Instance.AmHost || GameStates.IsLobby) return;
             if (AmongUsClient.Instance.AmHost && playerControl.GetCustomRole().PetActivatedAbility() && GameStates.IsInGame)
                 __instance.CancelPet();
             foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-                AmongUsClient.Instance.FinishRpcImmediately(AmongUsClient.Instance.StartRpcImmediately(__instance.NetId, 50, SendOption.None, player.GetClientId()));
+            {
+                if (!player.TryGetClientId(out var clientId)) continue;
+                AmongUsClient.Instance.FinishRpcImmediately(AmongUsClient.Instance.StartRpcImmediately(__instance.NetId, 50, SendOption.None, clientId));
+            }
         }
 
         // 実Pet RPC側ではCancelPetと同期処理を従来どおり実行し、
         // 先行処理済みの場合だけ能力本体の二重実行を止める。
         if (suppressDuplicateAbility) return;
+
+        // RENEGADE_R2G_GLOBAL_PET_ABILITY_LOCKDOWN
+        // Petの見た目/同期処理は維持し、能力本体だけを覚醒中は実行しない。
+        if (global::TownOfHostForE.Roles.Neutral.Renegade.IsAwakeningActive())
+        {
+            Logger.Info(
+                $"R2G awakened chase: pet active ability blocked player={playerControl.PlayerId}",
+                "Renegade");
+            return;
+        }
 
         // ROLEBUGTRACE_STAGE1A_PERMANENT: accepted pet dispatch only
         RoleBugTrace.Pet(playerControl, callId == 51 ? "HostLocal" : "Rpc");
@@ -186,16 +199,40 @@ public static class PetSettings
 
     public static void CheckNotHasPetPlayers()
     {
-
         foreach (var pc in Main.AllPlayerControls)
         {
-            if (!pc.CanPet())
+            if (pc == null || pc.Data == null || pc.Data.Disconnected)
+                continue;
+
+            var defaultPetId = pc.Data.DefaultOutfit.PetId ?? "";
+            var currentPetId = pc.CurrentOutfit?.PetId ?? "";
+
+            // RENTAL_PET_EMPTY_SENTINEL_REPAIR_AB_V1:
+            // Preserve only real pet ids. Empty values and the official empty sentinel remain rental-eligible.
+            var defaultHasRealPet =
+                !string.IsNullOrEmpty(defaultPetId) &&
+                defaultPetId != "pet_EmptyPet";
+            var currentHasRealPet =
+                !string.IsNullOrEmpty(currentPetId) &&
+                currentPetId != "pet_EmptyPet";
+
+            if (defaultHasRealPet || currentHasRealPet)
             {
-                petNotSetPlayerIds.Add(pc.PlayerId);
+                Logger.Info(
+                    $"Owned pet preserved: PlayerId={pc.PlayerId}, " +
+                    $"DefaultPetId={defaultPetId}, CurrentPetId={currentPetId}",
+                    "RentalPetOwnedGuard");
+                continue;
             }
 
-        }
+            // Default/CurrentともPetId無しの人だけレンタル対象。
+            petNotSetPlayerIds.Add(pc.PlayerId);
 
+            Logger.Info(
+                $"Rental pet eligible: PlayerId={pc.PlayerId}, " +
+                $"DefaultPetId={defaultPetId}, CurrentPetId={currentPetId}",
+                "RentalPetOwnedGuard");
+        }
     }
 
     //ペット付けてない人がいたらペットつけるための処理
@@ -219,7 +256,11 @@ public static class PetSettings
             }
 
             // ホスト所有でないPlayerControlにも届くSetPetStr形式で送信する。
+            // RENTAL_PET_DEFAULT_OUTFIT_PERSIST_AB_V1:
+            // v18の会議・迷彩・GameData復元が参照するDefaultOutfitにも
+            // rental petを保持し、visual-only状態にしない。
             pc.SetPet(FREEPET_STRING);
+            pc.Data.DefaultOutfit.PetId = FREEPET_STRING;
             pc.Data.DefaultOutfit.PetSequenceId += 10;
 
             var rentalPetSequenceId =
@@ -246,6 +287,142 @@ public static class PetSettings
 
     }
 
+    // DEAD_PET_RELIABLE_SET_PET_STR_V1:
+    // 死亡・追放後に残るPet visualだけを除去する。
+    // DefaultOutfit.PetId自体は保持し、生前の装備情報は破壊しない。
+    public static void RemoveDeadPetVisualReliable(
+        PlayerControl pc,
+        string source)
+    {
+        if (!AmongUsClient.Instance.AmHost) return;
+        if (pc == null || pc.Data == null) return;
+        if (pc.Data.Disconnected) return;
+
+        const string emptyPetId = "";
+
+        try
+        {
+            pc.SetPet(emptyPetId);
+        }
+        catch (System.Exception ex)
+        {
+            Logger.Warn(
+                $"DeadPetCleanup local SetPet failed: " +
+                $"PlayerId={pc.PlayerId}, Source={source}, " +
+                $"Exception={ex.GetType().Name}, Message={ex.Message}",
+                "DeadPetCleanup");
+        }
+
+        try
+        {
+            pc.Data.DefaultOutfit.PetSequenceId += 10;
+
+            var petSequenceId =
+                pc.GetNextRpcSequenceId(RpcCalls.SetPetStr);
+
+            var sender =
+                CustomRpcSender.Create(
+                    $"DeadPetCleanup.SetPetStr(" +
+                    $"PlayerId={pc.PlayerId}," +
+                    $"Source={source})",
+                    Hazel.SendOption.Reliable);
+
+            sender
+                .AutoStartRpc(
+                    pc.NetId,
+                    (byte)RpcCalls.SetPetStr)
+                .Write(emptyPetId)
+                .Write(petSequenceId)
+                .EndRpc();
+
+            sender.SendMessage();
+
+            Logger.Info(
+                $"PlayerId={pc.PlayerId}, " +
+                $"Source={source}, " +
+                $"Sequence={petSequenceId}, " +
+                $"DefaultPetPreserved={pc.Data.DefaultOutfit.PetId}, " +
+                $"Reliable=True, NativeSetPetStr=True",
+                "DeadPetCleanup");
+        }
+        catch (System.Exception ex)
+        {
+            Logger.Warn(
+                $"DeadPetCleanup network SetPetStr failed: " +
+                $"PlayerId={pc.PlayerId}, Source={source}, " +
+                $"Exception={ex.GetType().Name}, Message={ex.Message}",
+                "DeadPetCleanup");
+        }
+    }
+
+    public static void RemoveAllDeadPetVisualsReliable(
+        string source)
+    {
+        if (!AmongUsClient.Instance.AmHost) return;
+
+        foreach (var pc in Main.AllPlayerControls)
+        {
+            if (pc == null || pc.Data == null) continue;
+            if (pc.Data.Disconnected) continue;
+
+            if (pc.IsAlive() && !pc.Data.IsDead)
+                continue;
+
+            RemoveDeadPetVisualReliable(
+                pc,
+                source);
+        }
+    }
+    // HOST_LOCAL_REMOTE_PET_REANCHOR_AB_V4:
+    // Host display only. No Pet RPC, SetPetStr, outfit or ability state
+    // is changed. Only clearly detached live Remote pets are moved back
+    // to their PlayerControl after Airship meeting respawn.
+    public static void ReanchorHostLocalRemotePetVisual(
+        PlayerControl pc,
+        string source)
+    {
+        if (!AmongUsClient.Instance.AmHost) return;
+        if (pc == null || pc.AmOwner || pc.Data == null) return;
+        if (pc.Data.Disconnected || pc.Data.IsDead || !pc.IsAlive()) return;
+
+        try
+        {
+            var cosmetics = pc.cosmetics;
+            var pet = cosmetics == null ? null : cosmetics.currentPet;
+
+            if (pet == null) return;
+
+            var playerPosition = pc.transform.position;
+            var petPosition = pet.transform.position;
+            var dx = petPosition.x - playerPosition.x;
+            var dy = petPosition.y - playerPosition.y;
+            var distanceSquared = dx * dx + dy * dy;
+
+            if (distanceSquared <= 2.25f)
+                return;
+
+            pet.transform.position =
+                new UnityEngine.Vector3(
+                    playerPosition.x,
+                    playerPosition.y,
+                    petPosition.z);
+
+            Logger.Info(
+                $"PlayerId={pc.PlayerId} | Source={source} | " +
+                $"DistanceSquared={distanceSquared} | " +
+                $"Player=({playerPosition.x},{playerPosition.y}) | " +
+                $"PetBefore=({petPosition.x},{petPosition.y})",
+                "HostLocalPetReanchor");
+        }
+        catch (System.Exception ex)
+        {
+            Logger.Warn(
+                $"Host-local Pet reanchor failed: PlayerId={pc.PlayerId}, " +
+                $"Source={source}, Exception={ex.GetType().Name}, Message={ex.Message}",
+                "HostLocalPetReanchor");
+        }
+    }
+
     public static void RemovePetSet()
     {
         //登録が0じゃないなら
@@ -263,8 +440,13 @@ public static class PetSettings
                     continue;
                 }
 
+                // RENTAL_PET_DEFAULT_OUTFIT_PERSIST_AB_V1:
+                // Game開始時に保持したauthoritative rental petは、
+                // 生死に関係なく次ロビーへ持ち越さないよう先に解除する。
+                pc.Data.DefaultOutfit.PetId = "";
+
                 // PET001_REMOVE_DEAD_CONTINUE_PERMANENT:
-                // 死亡者だけを除外し、後続の生存プレイヤーのRental Pet解除を継続する。
+                // 死亡者だけをvisual RPC対象外にし、後続の生存プレイヤー処理は継続する。
                 if (!pc.IsAlive()) continue;
 
                 pc.RpcSetPet("");

@@ -62,9 +62,13 @@ public sealed class BountyHunter : RoleBase, IImpostor
     {
         OptionTargetChangeTime = FloatOptionItem.Create(RoleInfo, 10, OptionName.BountyTargetChangeTime, new(10f, 900f, 2.5f), 60f, false)
             .SetValueFormat(OptionFormat.Seconds);
-        OptionSuccessKillCooldown = FloatOptionItem.Create(RoleInfo, 11, OptionName.BountySuccessKillCooldown, new(0f, 180f, 2.5f), 2.5f, false)
+        OptionSuccessKillCooldown = FloatOptionItem.Create(RoleInfo, 11, OptionName.BountySuccessKillCooldown, new(0f, 180f, 0.5f), 2.5f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
-        OptionFailureKillCooldown = FloatOptionItem.Create(RoleInfo, 12, OptionName.BountyFailureKillCooldown, new(0f, 180f, 2.5f), 50f, false)
+        OptionFailureKillCooldown = FloatOptionItem.Create(RoleInfo, 12, OptionName.BountyFailureKillCooldown, new(0f, 180f, 0.5f), 50f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         OptionShowTargetArrow = BooleanOptionItem.Create(RoleInfo, 13, OptionName.BountyShowTargetArrow, false, false);
     }

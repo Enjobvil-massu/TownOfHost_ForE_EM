@@ -6,6 +6,8 @@ using HarmonyLib;
 using InnerNet;
 using UnityEngine;
 
+using TownOfHostForE.Modules;
+
 namespace TownOfHostForE
 {
     [HarmonyPatch(
@@ -105,6 +107,9 @@ namespace TownOfHostForE
         private static IEnumerator StartGameHost(
             AmongUsClient client)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "COSTARTGAMEHOST_ENTER",
+                $"ClientId={client.ClientId} Players={PlayerControl.AllPlayerControls.Count}");
 
             var loadingBarManager =
                 LoadingBarManager.Instance;
@@ -273,6 +278,9 @@ namespace TownOfHostForE
                 90f,
                 2f
             );
+            CriticalStartFlowPacketDiagnostic.Mark("LOADING_90_RETURNED");
+
+            yield return SettingsPacketPacer.WaitForDrain(12f);
 
 
 
@@ -281,7 +289,9 @@ namespace TownOfHostForE
 
             try
             {
+                CriticalStartFlowPacketDiagnostic.Mark("SELECT_ROLES_CALL");
                 RoleManager.Instance.SelectRoles();
+                CriticalStartFlowPacketDiagnostic.Mark("SELECT_ROLES_RETURNED");
             }
             finally
             {
@@ -290,17 +300,23 @@ namespace TownOfHostForE
             }
 
 
+            CriticalStartFlowPacketDiagnostic.Mark("ROLE_SELECTION_DEFERRED_CALL");
             yield return
                 SelectRolesPatch
                     .CompleteRoleSelectionDeferred(
                         SenderIntervalSeconds
                     );
+            CriticalStartFlowPacketDiagnostic.Mark("ROLE_SELECTION_DEFERRED_RETURNED_TO_HOST");
 
 
             // TASKSTATE_ROOTCAUSE_LOADING_ORDER_PERMANENT:
             // ShipStatus.Beginは100%描画yieldより先に実行する。
             // UI描画待機でIntro側TaskState.Initがタスク配布より先行する回帰を防ぐ。
+            CriticalStartFlowPacketDiagnostic.Mark("SHIPSTATUS_BEGIN_CALL");
             ShipStatus.Instance.Begin();
+            CriticalStartFlowPacketDiagnostic.MarkShipStatusBeginReturned();
+            StartFlowReadiness.MarkShipStatusBeginReturned();
+            yield return StartFlowReadiness.WaitForIntroSyncReady(12f);
 
             if (loadingBarManager != null)
             {
@@ -311,14 +327,19 @@ namespace TownOfHostForE
                     100f,
                     0.25f
                 );
+                CriticalStartFlowPacketDiagnostic.Mark("LOADING_100_RETURNED");
             }
 
+            CriticalStartFlowPacketDiagnostic.Mark("SEND_CLIENT_READY_CALL");
             client.SendClientReady();
+            CriticalStartFlowPacketDiagnostic.Mark("SEND_CLIENT_READY_RETURNED");
 
             if (loadingBarManager != null)
             {
                 loadingBarManager.ToggleLoadingBar(false);
             }
+
+            CriticalStartFlowPacketDiagnostic.Mark("COSTARTGAMEHOST_RETURN");
 
         }
     }

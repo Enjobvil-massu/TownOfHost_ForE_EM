@@ -56,11 +56,15 @@ public sealed class Totocalcio : RoleBase, IKiller, IAdditionalWinner
 
     private static void SetupOptionItem()
     {
-        OptionInitialCoolDown = FloatOptionItem.Create(RoleInfo, 10, OptionName.TotocalcioInitialCoolDown, new(0f, 180f, 2.5f), 30f, false)
+        OptionInitialCoolDown = FloatOptionItem.Create(RoleInfo, 10, OptionName.TotocalcioInitialCoolDown, new(0f, 180f, 0.5f), 30f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         OptionBetChangeCount = IntegerOptionItem.Create(RoleInfo, 11, OptionName.TotocalcioBetChangeCount, new(0, 10, 1), 0, false)
             .SetValueFormat(OptionFormat.Times);
-        OptionFinalCoolDown = FloatOptionItem.Create(RoleInfo, 12, OptionName.TotocalcioFinalCoolDown, new(0f, 180f, 2.5f), 60f, false)
+        OptionFinalCoolDown = FloatOptionItem.Create(RoleInfo, 12, OptionName.TotocalcioFinalCoolDown, new(0f, 180f, 0.5f), 60f, false)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
     }
     public bool CheckWin(ref CustomRoles winnerRole)

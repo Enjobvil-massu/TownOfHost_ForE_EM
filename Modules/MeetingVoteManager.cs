@@ -58,6 +58,130 @@ public class MeetingVoteManager
 
     internal static uint H4MeetingGeneration => h4MeetingGeneration;
 
+
+    // VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28:
+    private sealed class ViewerNativeEndMeetingSnapshotAbV28
+    {
+        internal ViewerNativeEndMeetingSnapshotAbV28(
+            uint meetingGeneration,
+            VoteResult result,
+            NetworkedPlayerInfo? exiled,
+            MeetingHud.VoterState[] states,
+            byte antiCompId,
+            int preparedViewerCount,
+            bool finalTie,
+            bool wasOverruled,
+            ushort overruleNonce)
+        {
+            MeetingGeneration = meetingGeneration;
+            Result = result;
+            Exiled = exiled;
+            States = states;
+            AntiCompId = antiCompId;
+            PreparedViewerCount = preparedViewerCount;
+            FinalTie = finalTie;
+            WasOverruled = wasOverruled;
+            OverruleNonce = overruleNonce;
+        }
+
+        internal uint MeetingGeneration { get; }
+        internal VoteResult Result { get; }
+        internal NetworkedPlayerInfo? Exiled { get; }
+        internal MeetingHud.VoterState[] States { get; }
+        internal byte AntiCompId { get; }
+        internal int PreparedViewerCount { get; }
+        internal bool FinalTie { get; }
+        internal bool WasOverruled { get; }
+        internal ushort OverruleNonce { get; }
+    }
+
+    private bool viewerNativeEndMeetingBarrierPendingAbV28;
+    private ViewerNativeEndMeetingSnapshotAbV28?
+        viewerNativeEndMeetingResumeSnapshotAbV28;
+
+    private bool TryConsumeViewerNativeEndMeetingSnapshotAbV28(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out ViewerNativeEndMeetingSnapshotAbV28? snapshot)
+    {
+        snapshot =
+            viewerNativeEndMeetingResumeSnapshotAbV28;
+
+        if (snapshot == null ||
+            snapshot.MeetingGeneration != h4MeetingGeneration)
+        {
+            viewerNativeEndMeetingResumeSnapshotAbV28 = null;
+            return false;
+        }
+
+        viewerNativeEndMeetingResumeSnapshotAbV28 = null;
+        return true;
+    }
+
+    private void ArmViewerNativeEndMeetingBarrierAbV28(
+        VoteResult result,
+        NetworkedPlayerInfo? exiled,
+        MeetingHud.VoterState[] states,
+        byte antiCompId,
+        int preparedViewerCount,
+        bool finalTie,
+        bool wasOverruled,
+        ushort overruleNonce)
+    {
+        if (viewerNativeEndMeetingBarrierPendingAbV28)
+            return;
+
+        var snapshot =
+            new ViewerNativeEndMeetingSnapshotAbV28(
+                h4MeetingGeneration,
+                result,
+                exiled,
+                states,
+                antiCompId,
+                preparedViewerCount,
+                finalTie,
+                wasOverruled,
+                overruleNonce);
+
+        viewerNativeEndMeetingBarrierPendingAbV28 = true;
+
+        Logger.Info(
+            $"Stage=END_BARRIER_ARMED | MeetingGeneration={h4MeetingGeneration} | " +
+            $"ExiledId={(exiled == null ? byte.MaxValue : exiled.PlayerId)} | " +
+            $"Tie={finalTie} | WasOverruled={wasOverruled} | OverruleNonce={overruleNonce} | PreparedViewers={preparedViewerCount} | " +
+            "BarrierSeconds=0.5",
+            "VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28");
+
+        _ = new LateTask(
+            () =>
+            {
+                if (!ReferenceEquals(_instance, this) ||
+                    snapshot.MeetingGeneration != h4MeetingGeneration)
+                {
+                    viewerNativeEndMeetingBarrierPendingAbV28 = false;
+                    Logger.Info(
+                        $"Stage=END_BARRIER_ABORT_STALE | CapturedGeneration={snapshot.MeetingGeneration} | " +
+                        $"CurrentGeneration={h4MeetingGeneration}",
+                        "VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28");
+                    return;
+                }
+
+                viewerNativeEndMeetingBarrierPendingAbV28 = false;
+                viewerNativeEndMeetingResumeSnapshotAbV28 = snapshot;
+
+                Logger.Info(
+                    $"Stage=END_BARRIER_RESUME | MeetingGeneration={snapshot.MeetingGeneration} | " +
+                    $"ExiledId={(snapshot.Exiled == null ? byte.MaxValue : snapshot.Exiled.PlayerId)} | " +
+                    $"Tie={snapshot.FinalTie} | WasOverruled={snapshot.WasOverruled} | OverruleNonce={snapshot.OverruleNonce} | PreparedViewers={snapshot.PreparedViewerCount}",
+                    "VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28");
+
+                EndMeeting(
+                    applyVoteMode: false,
+                    antiCompId: snapshot.AntiCompId);
+            },
+            0.5f,
+            "ViewerNativeEndMeetingBarrierABV28");
+    }
+
     private static void H4BeginMeeting()
     {
         h4MeetingGeneration = h4MeetingGeneration == uint.MaxValue
@@ -131,6 +255,7 @@ public class MeetingVoteManager
     {
         _instance = new();
         H4BeginMeeting();
+        TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Meeting());
     }
 
     /// <summary>
@@ -140,7 +265,7 @@ public class MeetingVoteManager
     {
         foreach (var voteArea in meetingHud.playerStates)
         {
-            allVotes[voteArea.TargetPlayerId] = new(voteArea.TargetPlayerId);
+            allVotes[voteArea.PlayerId] = new(voteArea.PlayerId);
         }
     }
     /// <summary>
@@ -255,51 +380,149 @@ public class MeetingVoteManager
     /// <param name="applyVoteMode">スキップと同数投票の設定を適用するかどうか</param>
     public void EndMeeting(bool applyVoteMode = true, byte antiCompId = byte.MaxValue)
     {
-        // SCALES_PORT_PERMANENT: 天秤専用会議は通常の同数・勝敗上書きを通さず専用集計する
-        if (Scales.TryEndSpecialMeeting(this, meetingHud))
+        if (viewerNativeEndMeetingBarrierPendingAbV28)
         {
-            Destroy();
+            Logger.Info(
+                $"Stage=END_BARRIER_PENDING_REENTRY_BLOCKED | MeetingGeneration={h4MeetingGeneration}",
+                "VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28");
             return;
         }
 
-        var result = CountVotes(applyVoteMode);
-        //Y-anti
-        var exiled = (antiCompId == byte.MaxValue) ? result.Exiled : Utils.GetPlayerInfoById(antiCompId);
+        VoteResult result;
+        NetworkedPlayerInfo? exiled;
+        List<MeetingHud.VoterState> states;
+        bool finalTie;
+        bool wasOverruled;
+        ushort overruleNonce;
 
-        var logName = exiled == null ? (result.IsTie ? "同数" : "スキップ") : exiled.Object.GetNameWithRole();
-        logger.Info($"追放者: {logName} で会議を終了します");
-
-        var states = new List<MeetingHud.VoterState>();
-        foreach (var voteArea in meetingHud.playerStates)
+        if (TryConsumeViewerNativeEndMeetingSnapshotAbV28(
+                out var v28Snapshot))
         {
-            var voteData = AllVotes.TryGetValue(voteArea.TargetPlayerId, out var value) ? value : null;
-            if (voteData == null)
+            result = v28Snapshot.Result;
+            exiled = v28Snapshot.Exiled;
+            states =
+                new List<MeetingHud.VoterState>(
+                    v28Snapshot.States);
+            finalTie = v28Snapshot.FinalTie;
+            wasOverruled = v28Snapshot.WasOverruled;
+            overruleNonce = v28Snapshot.OverruleNonce;
+        }
+        else
+        {
+
+            // SCALES_PORT_PERMANENT: 天秤専用会議は通常の同数・勝敗上書きを通さず専用集計する
+            if (Scales.TryEndSpecialMeeting(this, meetingHud))
             {
-                logger.Warn($"{Utils.GetPlayerById(voteArea.TargetPlayerId).GetNameWithRole()} の投票データがありません");
-                continue;
+                Destroy();
+                return;
             }
-            for (var i = 0; i < voteData.NumVotes; i++)
+
+            result = CountVotes(applyVoteMode);
+            //Y-anti
+            exiled = (antiCompId == byte.MaxValue) ? result.Exiled : Utils.GetPlayerInfoById(antiCompId);
+
+            finalTie = result.IsTie;
+            wasOverruled = false;
+            overruleNonce = 0;
+
+            var judgeOverruleAllowed =
+                antiCompId == byte.MaxValue &&
+                !(MeetingStates.FirstMeeting &&
+                  Options.IsFirstTurnMeetingAbilityBlocked);
+
+            if (judgeOverruleAllowed &&
+                meetingHud.TryGetWinningOverrule(
+                    out var winningOverrule,
+                    out var judgePlayerInfo,
+                    out var overruledPlayerInfo))
             {
-                states.Add(new()
+                var judgePlayer = judgePlayerInfo?.Object;
+                var overruledPlayer = overruledPlayerInfo?.Object;
+
+                if (judgePlayer != null &&
+                    overruledPlayer != null)
                 {
-                    VoterId = voteArea.TargetPlayerId,
-                    VotedForId = voteData.VotedFor,
-                });
+                    var overruleCorrect =
+                        overruledPlayer.Is(CustomRoleTypes.Impostor);
+
+                    exiled = overruleCorrect
+                        ? overruledPlayerInfo
+                        : judgePlayerInfo;
+                    finalTie = false;
+                    wasOverruled = true;
+                    overruleNonce = winningOverrule.OverruleNonce;
+
+                    var finalExiledPlayerId =
+                        overruleCorrect
+                            ? overruledPlayer.PlayerId
+                            : judgePlayer.PlayerId;
+
+                    logger.Info(
+                        $"[JUDGE_NATIVE_OVERRULE_AB_V2] Judge Overrule | Judge={judgePlayer.PlayerId} | Target={overruledPlayer.PlayerId} | Correct={overruleCorrect} | Exiled={finalExiledPlayerId} | Nonce={overruleNonce}");
+                }
+                else
+                {
+                    logger.Warn(
+                        "[JUDGE_NATIVE_OVERRULE_AB_V2] Judge Overrule native winner had null PlayerControl; preserve normal vote result");
+                }
+            }
+
+            var logName = exiled == null ? (finalTie ? "同数" : "スキップ") : exiled.Object.GetNameWithRole();
+            logger.Info($"追放者: {logName} で会議を終了します");
+
+            states = new List<MeetingHud.VoterState>();
+            foreach (var voteArea in meetingHud.playerStates)
+            {
+                var voteData = AllVotes.TryGetValue(voteArea.PlayerId, out var value) ? value : null;
+                if (voteData == null)
+                {
+                    logger.Warn($"{Utils.GetPlayerById(voteArea.PlayerId).GetNameWithRole()} の投票データがありません");
+                    continue;
+                }
+                for (var i = 0; i < voteData.NumVotes; i++)
+                {
+                    states.Add(new()
+                    {
+                        VoterId = voteArea.PlayerId,
+                        VotedForId = voteData.VotedFor,
+                    });
+                }
+            }
+
+            if (AntiBlackout.TryPrepareViewerNativeEndMeetingBarrierAbV28(
+                    exiled,
+                    finalTie,
+                    out var v28PreparedViewerCount))
+            {
+                ArmViewerNativeEndMeetingBarrierAbV28(
+                    result,
+                    exiled,
+                    states.ToArray(),
+                    antiCompId,
+                    v28PreparedViewerCount,
+                    finalTie,
+                    wasOverruled,
+                    overruleNonce);
+                return;
             }
         }
 
         if (AntiBlackout.OverrideExiledPlayer)
         {
-            ExileControllerWrapUpPatch.AntiBlackout_LastExiled = exiled;
+            // AntiBlackout_LastExiled is a legacy null-capable field: existing Scales
+            // paths assign null and downstream exile paths explicitly test for null.
+            // Suppress only the annotation mismatch here; the runtime value is unchanged.
+            ExileControllerWrapUpPatch.AntiBlackout_LastExiled = exiled!;
 
             // ExileDisplayRealPermanent:
             // 4-15人かつ実追放あり、さらに全viewer x targetの正確な
             // RoleView復元値が揃った場合だけ非ホストへreal VotingCompleteを送る。
             if (exiled != null &&
-                !result.IsTie &&
+                !finalTie &&
                 AntiBlackout.TryPrepareRealExileDisplayPermanent(exiled))
             {
                 H4RecordActualExile(exiled, false, "PREPARED_REAL_TARGETED");
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.PreVote(exiled));
                 var stateArray = states.ToArray();
                 var targetedClientCount = 0;
 
@@ -311,6 +534,8 @@ public class MeetingVoteManager
                         player.AmOwner)
                         continue;
 
+                    if (!player.TryGetClientId(out var clientId)) continue;
+
                     // TOHKのv17.4系送信形式と同じく、
                     // VoterState.SerializeをCustomRpcSender.streamへ直接書く。
                     var sender = CustomRpcSender.Create(
@@ -318,7 +543,213 @@ public class MeetingVoteManager
                         Hazel.SendOption.Reliable
                     );
 
-                    sender.StartMessage(player.GetClientId());
+                    sender.StartMessage(clientId);
+
+                    // HOST_EXILE_PRE_VOTING_DUMMY_AB_V4:
+                    // real VotingCompleteより先に、同一targeted GameDataTo内で
+                    // 必要viewerだけSafety DummyをImpostorへする。
+                    // Reliable順序だけでなく同一message内順序まで固定する。
+                    var preVotingExiled = Utils.GetPlayerById(exiled.PlayerId);
+                    if (!AntiBlackout.IsViewerNativeEndMeetingBarrierAppliedAbV28(
+                            player.PlayerId) &&
+                        preVotingExiled != null &&
+                        ExileControllerWrapUpPatch.VanillaActualExileCriticalLeaseAbV14A
+                            .TryGetModExilePreVotingSafetyDummyAbV5(
+                                preVotingExiled,
+                                player,
+                                out var preVotingDummy) &&
+                        preVotingDummy != null)
+                    {
+                        if (preVotingExiled.AmOwner)
+                        {
+                            // HOST_EXILE_PRE_VOTING_DUMMY_AB_V4:
+                            // Preserve the exact v4 condition/dummy selection.
+                            // HOST_EXILE_PRE_VOTING_DUMMY_PACKET_BARRIER_AB_V18:
+                            // Only transport changes: send Dummy=Impostor in its own
+                            // Reliable targeted packet before the existing VotingComplete.
+                            // No artificial delay and no role-map/death-state mutation.
+                            var hostPreVotingSafetySender = CustomRpcSender.Create(
+                                "HostExile PreVoting Dummy Packet AB V18",
+                                Hazel.SendOption.Reliable
+                            );
+                            hostPreVotingSafetySender.StartMessage(clientId);
+                            hostPreVotingSafetySender
+                                .StartRpc(preVotingDummy.NetId, RpcCalls.SetRole)
+                                .Write((ushort)AmongUs.GameOptions.RoleTypes.Impostor)
+                                .Write(true)
+                                .EndRpc();
+                            hostPreVotingSafetySender.SendMessage();
+
+                            Logger.Info(
+                                $"Stage=PRE_VOTING_DUMMY_PACKET_SENT | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | SeparateReliableMessage=True | ArtificialDelayMs=0",
+                                "HOST_EXILE_PRE_VOTING_DUMMY_PACKET_BARRIER_AB_V18");
+                        }
+                        else
+                        {
+                            // REMOTE_MOD_EXILE_PRE_VOTING_FULL_SAFE_BUNDLE_AB_V16:
+                            // Preserve v16's exact 1-Impostor + rest-Crew topology.
+                            // REMOTE_MOD_EXILE_PRE_VOTING_SAFE_PACKET_BARRIER_AB_V17:
+                            // Only the transport boundary changes: send the full safe
+                            // topology in its own Reliable targeted message first.
+                            // The existing voting sender emits VotingComplete after it.
+                            // No artificial time delay is introduced.
+                            var preVotingSafetySender = CustomRpcSender.Create(
+                                "RemoteModExile PreVoting Safe Packet AB V17",
+                                Hazel.SendOption.Reliable
+                            );
+                            preVotingSafetySender.StartMessage(clientId);
+
+                            preVotingSafetySender
+                                .StartRpc(preVotingDummy.NetId, RpcCalls.SetRole)
+                                .Write((ushort)AmongUs.GameOptions.RoleTypes.Impostor)
+                                .Write(true)
+                                .EndRpc();
+
+                            var preVotingFullSafeTargetCount = 1;
+
+                            foreach (var preVotingTarget in Main.AllPlayerControls)
+                            {
+                                if (preVotingTarget == null ||
+                                    preVotingTarget.Data == null ||
+                                    preVotingTarget.Data.Disconnected ||
+                                    preVotingTarget.PlayerId == preVotingDummy.PlayerId)
+                                {
+                                    continue;
+                                }
+
+                                preVotingSafetySender
+                                    .StartRpc(preVotingTarget.NetId, RpcCalls.SetRole)
+                                    .Write((ushort)AmongUs.GameOptions.RoleTypes.Crewmate)
+                                    .Write(true)
+                                    .EndRpc();
+
+                                preVotingFullSafeTargetCount++;
+                            }
+
+                            preVotingSafetySender.SendMessage();
+
+                            Logger.Info(
+                                $"Stage=PRE_VOTING_SAFE_PACKET_SENT | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | Targets={preVotingFullSafeTargetCount} | SeparateReliableMessage=True | ArtificialDelayMs=0",
+                                "REMOTE_MOD_EXILE_PRE_VOTING_SAFE_PACKET_BARRIER_AB_V17");
+
+                            // REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19:
+                            // v17 proved that SetRole alone is insufficient in the exact
+                            // dangerous viewer case. Add the matching NetworkedPlayerInfo
+                            // wire state before VotingComplete without mutating host state.
+                            var v19PreparedSenders = new List<CustomRpcSender>();
+                            CustomRpcSender? v19BuildingSender = null;
+                            var v19PreparedTargetCount = 0;
+                            var v19PatchedUInt16Count = 0;
+                            var v19MaxPacketBytes = 0;
+                            var v19BuildOk = true;
+                            var v19AbortReason = "";
+                            var v19SentPacketCount = 0;
+
+                            try
+                            {
+                                foreach (var v19Source in GameData.Instance.AllPlayers)
+                                {
+                                    if (v19Source == null || v19Source.Disconnected)
+                                    {
+                                        continue;
+                                    }
+
+                                    v19BuildingSender = new CustomRpcSender(
+                                        $"RemoteModExile FullSafe GameData AB V19 P{v19Source.PlayerId}",
+                                        Hazel.SendOption.Reliable,
+                                        false);
+                                    v19BuildingSender.StartMessage(clientId);
+
+                                    var v19WireRole =
+                                        v19Source.PlayerId == preVotingDummy.PlayerId
+                                            ? AmongUs.GameOptions.RoleTypes.Impostor
+                                            : AmongUs.GameOptions.RoleTypes.Crewmate;
+
+                                    if (!SelectRolesPatch.TryAppendPreVotingFullSafeNetworkedPlayerInfoAbV19(
+                                            v19BuildingSender,
+                                            v19Source,
+                                            v19WireRole,
+                                            out var v19CapturedWrites) ||
+                                        v19CapturedWrites != 2)
+                                    {
+                                        v19AbortReason = $"CAPTURE_COUNT PlayerId={v19Source.PlayerId} Count={v19CapturedWrites}";
+                                        v19BuildingSender.stream.Recycle();
+                                        v19BuildingSender = null;
+                                        v19BuildOk = false;
+                                        break;
+                                    }
+
+                                    v19BuildingSender.EndMessage();
+                                    var v19PacketBytes = v19BuildingSender.stream.Length;
+                                    if (v19PacketBytes > 400)
+                                    {
+                                        v19AbortReason = $"PACKET_TOO_LARGE PlayerId={v19Source.PlayerId} Bytes={v19PacketBytes} Max=400";
+                                        v19BuildingSender.stream.Recycle();
+                                        v19BuildingSender = null;
+                                        v19BuildOk = false;
+                                        break;
+                                    }
+
+                                    v19MaxPacketBytes = Math.Max(
+                                        v19MaxPacketBytes,
+                                        v19PacketBytes);
+                                    v19PreparedSenders.Add(v19BuildingSender);
+                                    v19BuildingSender = null;
+                                    v19PreparedTargetCount++;
+                                    v19PatchedUInt16Count += v19CapturedWrites;
+                                }
+
+                                if (v19BuildOk && v19PreparedTargetCount > 0)
+                                {
+                                    Logger.Info(
+                                        $"Stage=PRE_VOTING_FULL_SAFE_GAMEDATA_PREPARED | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | Targets={v19PreparedTargetCount} | Packets={v19PreparedSenders.Count} | PatchedUInt16={v19PatchedUInt16Count} | MaxPacketBytes={v19MaxPacketBytes} | OneNpiPerPacket=True | HostStateMutated=False",
+                                        "REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19");
+
+                                    foreach (var v19PreparedSender in v19PreparedSenders)
+                                    {
+                                        v19PreparedSender.SendMessage();
+                                        v19SentPacketCount++;
+                                    }
+
+                                    Logger.Info(
+                                        $"Stage=PRE_VOTING_FULL_SAFE_GAMEDATA_SENT | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | Targets={v19PreparedTargetCount} | Packets={v19SentPacketCount} | PatchedUInt16={v19PatchedUInt16Count} | MaxPacketBytes={v19MaxPacketBytes} | BeforeVotingComplete=True",
+                                        "REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19");
+                                }
+                                else
+                                {
+                                    foreach (var v19PreparedSender in v19PreparedSenders)
+                                    {
+                                        v19PreparedSender.stream.Recycle();
+                                    }
+
+                                    Logger.Warn(
+                                        $"Stage=PRE_VOTING_FULL_SAFE_GAMEDATA_ABORT | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | Reason={v19AbortReason} | PreparedTargets={v19PreparedTargetCount} | SentPackets=0",
+                                        "REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                if (v19BuildingSender != null)
+                                {
+                                    v19BuildingSender.stream.Recycle();
+                                }
+
+                                for (var v19Index = v19SentPacketCount;
+                                     v19Index < v19PreparedSenders.Count;
+                                     v19Index++)
+                                {
+                                    v19PreparedSenders[v19Index].stream.Recycle();
+                                }
+
+                                Logger.Exception(
+                                    ex,
+                                    "REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19");
+                                Logger.Warn(
+                                    $"Stage=PRE_VOTING_FULL_SAFE_GAMEDATA_ABORT | ViewerId={player.PlayerId} | ViewerClientId={player.GetClientId()} | DummyId={preVotingDummy.PlayerId} | ExiledId={exiled.PlayerId} | Reason=EXCEPTION | PreparedTargets={v19PreparedTargetCount} | SentPackets={v19SentPacketCount}",
+                                    "REMOTE_MOD_EXILE_PRE_VOTING_TARGETED_FULL_SAFE_GAMEDATA_AB_V19");
+                            }
+                        }
+                    }
                     sender.StartRpc(meetingHud.NetId, RpcCalls.VotingComplete)
                         .WritePacked(stateArray.Length);
 
@@ -329,13 +760,16 @@ public class MeetingVoteManager
 
                     sender.Write(exiled.PlayerId);
                     sender.Write(false);
+                    sender.Write(wasOverruled);
+                    sender.Write(overruleNonce);
                     sender.EndRpc();
                     sender.SendMessage();
-                    if (player.PlayerId == exiled.PlayerId)
+                    TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.VotingReturned(player.PlayerId));
+                    if (player.PlayerId == exiled.PlayerId && player.TryGetClientId(out var deliveredClientId))
                     {
                         H4MarkRealVotingCompleteDelivered(
                             player.PlayerId,
-                            player.GetClientId());
+                            deliveredClientId);
                     }
                     targetedClientCount++;
                 }
@@ -343,7 +777,12 @@ public class MeetingVoteManager
                 // ホスト自身は従来AntiBlackoutのnull/tie状態を維持する。
                 // ホストの表示だけは既存ExileControllerBeginDisplayRestorePermanentPatchが
                 // AntiBlackout_LastExiledから実追放者へ差し戻す。
-                meetingHud.VotingComplete(stateArray, null, true);
+                meetingHud.VotingComplete(
+                    stateArray,
+                    null,
+                    true,
+                    wasOverruled,
+                    overruleNonce);
 
                 Logger.Info(
                     $"Real VotingComplete targeted | Exiled={exiled.PlayerId} | Clients={targetedClientCount}",
@@ -356,7 +795,7 @@ public class MeetingVoteManager
                 // 3人・実追放・remote Vanilla本人だけsafe RoleTypeを準備する。
                 // VotingCompleteは従来どおり null/tie のまま。PREPARED_REAL_TARGETEDへは入れない。
                 if (exiled != null &&
-                    !result.IsTie &&
+                    !finalTie &&
                     exiled.Object is { } exiledObject &&
                     !exiledObject.AmOwner &&
                     !exiledObject.IsModClient() &&
@@ -368,7 +807,8 @@ public class MeetingVoteManager
                         "VANILLA_ACTUAL_EXILE_3P_FALLBACK_SAFE_ROLE_AB_V6");
                 }
 
-                H4RecordActualExile(exiled, result.IsTie, "ANTIBLACKOUT_FALLBACK");
+                H4RecordActualExile(exiled, finalTie, "ANTIBLACKOUT_FALLBACK");
+                TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.PreVote(exiled));
 
                 // FIRST_TURN_SKIP_DISPLAY_AB_V1:
                 // 初手強制会議では実投票を全てSkipへ変換しているため、
@@ -379,7 +819,7 @@ public class MeetingVoteManager
                     MeetingStates.FirstMeeting &&
                     Options.IsFirstTurnMeetingAbilityBlocked &&
                     exiled == null &&
-                    !result.IsTie;
+                    !finalTie;
 
                 // OFFICIAL_SKIP_DISPLAY_AB_V1:
                 // AntiBlackout fallbackでも、追放者なし・真の同票ではない場合は
@@ -387,12 +827,14 @@ public class MeetingVoteManager
                 // 実追放fallbackと本当の同票は従来どおりtie=trueを維持する。
                 var officialSkipDisplay =
                     exiled == null &&
-                    !result.IsTie;
+                    !finalTie;
 
                 meetingHud.RpcVotingComplete(
                     states.ToArray(),
                     null,
-                    !officialSkipDisplay);
+                    !officialSkipDisplay,
+                    wasOverruled,
+                    overruleNonce);
 
                 if (firstTurnForcedSkipDisplay)
                 {
@@ -411,11 +853,17 @@ public class MeetingVoteManager
         }
         else
         {
-            H4RecordActualExile(exiled, result.IsTie, "NORMAL_BROADCAST");
-            meetingHud.RpcVotingComplete(states.ToArray(), exiled, result.IsTie);
+            H4RecordActualExile(exiled, finalTie, "NORMAL_BROADCAST");
+            TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.PreVote(exiled));
+            meetingHud.RpcVotingComplete(
+                states.ToArray(),
+                exiled,
+                finalTie,
+                wasOverruled,
+                overruleNonce);
             if (exiled?.Object != null &&
                 !exiled.Object.AmOwner &&
-                !result.IsTie)
+                !finalTie)
             {
                 H4MarkRealVotingCompleteDelivered(
                     exiled.PlayerId,
@@ -450,7 +898,7 @@ public class MeetingVoteManager
         Dictionary<byte, int> votes = new();
         foreach (var voteArea in meetingHud.playerStates)
         {
-            votes[voteArea.TargetPlayerId] = 0;
+            votes[voteArea.PlayerId] = 0;
         }
         votes[Skip] = 0;
         foreach (var vote in AllVotes.Values)
@@ -554,6 +1002,8 @@ public class MeetingVoteManager
     }
     public void Destroy()
     {
+        viewerNativeEndMeetingBarrierPendingAbV28 = false;
+        viewerNativeEndMeetingResumeSnapshotAbV28 = null;
         _instance = null;
     }
 

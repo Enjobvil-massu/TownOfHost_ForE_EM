@@ -63,6 +63,8 @@ namespace TownOfHostForE
                         pc.RpcSetPet("");
                     }
                 }
+                if (!IsCamouflage)
+                    TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Pets("CAMOUFLAGE_END"));
                 Utils.NotifyRoles(NoCache: true);
             }
         }

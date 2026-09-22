@@ -148,9 +148,17 @@ namespace TownOfHostForE
                         }
                     }
                 }
+                // RENEGADE_R2G_ACTIVE_TASK_TERMINAL:
+                // 覚醒中の全タスク完了だけは、その瞬間のクルー勝利を確定させる。
+                // タイムアップ後はIsAwakeningActive=falseとなるため、既存God最終上書きへ戻る。
+                var renegadeAwakeningTaskWin =
+                    reason == GameOverReason.CrewmatesByTask &&
+                    Renegade.IsAwakeningActive();
+
                 // GOD_HIGHEST_PRIORITY_WIN_PERMANENT: 全役職・全陣営・タスク勝利の処理後に神だけへ最終上書き
                 // GOD_DRAW_GUARD_PERMANENT: 廃村Drawだけは神の通常勝利上書き対象外
-                if (CustomWinnerHolder.WinnerTeam != CustomWinner.Draw
+                if (!renegadeAwakeningTaskWin
+                    && CustomWinnerHolder.WinnerTeam != CustomWinner.Draw
                     && God.CheckWin())
                 {
                     CustomWinnerHolder.ResetAndSetWinner(CustomWinner.God);
@@ -259,6 +267,41 @@ namespace TownOfHostForE
             {
                 reason = GameOverReason.ImpostorsByKill;
                 if (CustomWinnerHolder.WinnerTeam != CustomWinner.Default) return false;
+
+                // RENEGADE_R2G_ACTIVE_ENDGAME_LOCK
+                // 覚醒中は通常の生存人数勝利・サボタージュ勝利を止める。
+                // ただし全タスク完了は即クルー勝利を維持し、最優先で判定する。
+                if (Renegade.IsAwakeningActive())
+                {
+                    if (CheckGameEndByTask(out reason))
+                    {
+                        Logger.Info(
+                            "R2G awakened task terminal: Crewmate task win",
+                            "Renegade");
+                        return true;
+                    }
+
+                    var alivePlayers =
+                        Main.AllAlivePlayerControls.ToArray();
+
+                    if (alivePlayers.Length == 1 &&
+                        Renegade.IsAwakeningPlayer(alivePlayers[0]))
+                    {
+                        reason = GameOverReason.ImpostorsByKill;
+                        CustomWinnerHolder.ResetAndSetWinner(
+                            CustomWinner.Renegade);
+                        CustomWinnerHolder.WinnerIds.Add(
+                            alivePlayers[0].PlayerId);
+
+                        Logger.Info(
+                            $"R2G sole awakened Renegade win playerId={alivePlayers[0].PlayerId}",
+                            "Renegade");
+                        return true;
+                    }
+
+                    return false;
+                }
+
                 if (CheckGameEndByLivingPlayers(out reason)) return true;
                 if (CheckGameEndByTask(out reason)) return true;
                 if (CheckGameEndBySabotage(out reason)) return true;

@@ -25,8 +25,31 @@ public static class SecurityCameraSystemTypeUpdateSystemPatch
                 MapNames.Airship => Options.DisableAirshipCamera.GetBool(),
                 _ => false,
             };
+
+            // DEVICE_TIME_LIMIT_PORT_V21
+            if (!camerasDisabled &&
+                DisableDevice.IsCameraTimeLimitExpired())
+            {
+                camerasDisabled = true;
+            }
+
+            if (!camerasDisabled &&
+                Options.TimeLimitDevices.GetBool())
+            {
+                DisableDevice.UseCount++;
+            }
+
             return !camerasDisabled;
         }
+
+        // DEVICE_TIME_LIMIT_PORT_V21
+        if (amount == SecurityCameraSystemType.DecrementOp &&
+            Options.TimeLimitDevices.GetBool() &&
+            DisableDevice.UseCount > 0)
+        {
+            DisableDevice.UseCount--;
+        }
+
         return true;
     }
 }

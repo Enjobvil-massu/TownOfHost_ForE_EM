@@ -6,6 +6,8 @@ namespace TownOfHostForE.Modules;
 
 public static class OptionSaver
 {
+    private const int CurrentValueRuleSchemaVersion = 2;
+
     private static readonly DirectoryInfo SaveDataDirectoryInfo = new("./TOH_DATA/SaveData/");
     private static readonly FileInfo OptionSaverFileInfo = new($"{SaveDataDirectoryInfo.FullName}/Options4E.json");
     private static readonly LogHandler logger = Logger.Handler(nameof(OptionSaver));
@@ -46,6 +48,7 @@ public static class OptionSaver
             Version = Version,
             SingleOptions = singleOptions,
             PresetOptions = presetOptions,
+                ValueRuleSchemaVersion = CurrentValueRuleSchemaVersion,
         };
     }
     /// <summary>デシリアライズされたオブジェクトを読み込み，オプション値を設定</summary>
@@ -75,6 +78,31 @@ public static class OptionSaver
             var values = presetOption.Value;
             if (OptionItem.FastOptions.TryGetValue(id, out var optionItem))
             {
+                if (serializableOptionsData.ValueRuleSchemaVersion < 1
+                    && optionItem is FloatOptionItem floatOption
+                    && floatOption.LegacySavedIndexMultiplier > 1)
+                {
+                    var migratedValues = new int[values.Length];
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        migratedValues[i] = values[i] * floatOption.LegacySavedIndexMultiplier;
+                    }
+                    values = migratedValues;
+                }
+
+                // MADMATE_VENT_COOLDOWN_5_TO_1_SAVE_MIGRATION_SCHEMA2:
+                // ID91528だけ旧5秒刻みindexを新1秒刻みindexへ変換する。
+                // Schema1済みKCDを再変換しないため、既存LegacySavedIndexMultiplier経路とは分離。
+                if (serializableOptionsData.ValueRuleSchemaVersion < 2 && id == 91528)
+                {
+                    var migratedValues = new int[values.Length];
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        migratedValues[i] = values[i] * 5;
+                    }
+                    values = migratedValues;
+                }
+
                 optionItem.SetAllValues(values);
             }
         }
@@ -113,6 +141,7 @@ public static class OptionSaver
         /// <summary>プリセット外のオプション</summary>
         public Dictionary<int, int> SingleOptions { get; init; }
         /// <summary>プリセット内のオプション</summary>
+        public int ValueRuleSchemaVersion { get; init; }
         public Dictionary<int, int[]> PresetOptions { get; init; }
     }
 

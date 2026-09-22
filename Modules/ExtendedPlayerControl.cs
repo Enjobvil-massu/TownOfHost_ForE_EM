@@ -67,17 +67,47 @@ namespace TownOfHostForE
 
         public static void RpcExile(this PlayerControl player)
         {
+            // RENEGADE_R2B_RPC_EXILE_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockForcedExile(
+                    player,
+                    "ExtendedPlayerControl.RpcExile"))
+            {
+                return;
+            }
+
+            // VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28:
+            // RpcExile is a TOH4E extension, not a PlayerControl native method.
+            // Rotate the viewer-local Native Imp sentinel before its Exiled RPC.
+            AntiBlackout.TryRotateViewerNativeSentinelBeforeDeathAbV28(
+                player,
+                "RPC_EXILE_EXTENSION");
             RPC.ExileAsync(player);
         }
         public static InnerNet.ClientData GetClient(this PlayerControl player)
         {
-            var client = AmongUsClient.Instance.allClients.ToArray().Where(cd => cd.Character.PlayerId == player.PlayerId).FirstOrDefault();
-            return client;
+            if (player == null) return null!;
+            var client = AmongUsClient.Instance;
+            if (client == null) return null!;
+            var clients = client.allClients;
+            if (clients == null) return null!;
+            var playerId = player.PlayerId;
+            foreach (var cd in clients.ToArray())
+            {
+                if (cd == null) continue;
+                var character = cd.Character;
+                if (character != null && character.PlayerId == playerId) return cd;
+            }
+            return null;
         }
         public static int GetClientId(this PlayerControl player)
         {
             var client = player.GetClient();
             return client == null ? -1 : client.Id;
+        }
+        public static bool TryGetClientId(this PlayerControl player, out int clientId)
+        {
+            clientId = player.GetClientId();
+            return clientId >= 0;
         }
         public static CustomRoles GetCustomRole(this NetworkedPlayerInfo player)
         {
@@ -141,23 +171,23 @@ namespace TownOfHostForE
         {
             //player: 名前の変更対象
             //seer: 上の変更を確認することができるプレイヤー
-            if (player == null || name == null || !AmongUsClient.Instance.AmHost) return;
+            if (player == null || name == null || AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost) return;
             if (seer == null) seer = player;
             // VANILLA_HOST_MOD_VERSION_DISPLAY_LASTNOTIFY_SAFE_PERMANENT:
             // ロビーではLastNotifyNamesが未初期化、または新規参加者との組合せキーが未登録になり得る。
             // 既存の「同じ名前なら送信抑制」という仕様は維持し、未初期化/未登録時だけ安全に送信へ進める。
-            Main.LastNotifyNames ??= new();
             var notifyNameKey = (player.PlayerId, seer.PlayerId);
-            if (!force &&
+            if (!force && Main.LastNotifyNames != null &&
                 Main.LastNotifyNames.TryGetValue(notifyNameKey, out var lastName) &&
                 lastName == name)
             {
                 return;
             }
+            if (!seer.TryGetClientId(out var clientId)) return;
+            Main.LastNotifyNames ??= new();
             Main.LastNotifyNames[notifyNameKey] = name;
             HudManagerPatch.LastSetNameDesyncCount++;
             //Logger.Info($"Set:{player?.Data?.PlayerName}:{name.RemoveHtmlTags()} for {seer.GetNameWithRole()}", "RpcSetNamePrivate");
-            var clientId = seer.GetClientId();
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.SetName, Hazel.SendOption.Reliable, clientId);
             writer.Write(player.Data.NetId);
             writer.Write(name);
@@ -167,7 +197,7 @@ namespace TownOfHostForE
 
         public static void RpcSetNamePrivateSingle(this PlayerControl seer, string name, bool DontShowOnModdedClient = false)
         {
-            var clientId = seer.GetClientId();
+            if (!seer.TryGetClientId(out var clientId)) return;
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(seer.NetId, (byte)RpcCalls.SetName, Hazel.SendOption.Reliable, clientId);
             writer.Write(name);
             writer.Write(DontShowOnModdedClient);
@@ -177,26 +207,28 @@ namespace TownOfHostForE
         {
             if (!AmongUsClient.Instance.AmHost) return;
             if (seer == null) seer = Player;
-            var clientId = seer.GetClientId();
+            if (!seer.TryGetClientId(out var clientId)) return;
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(Player.NetId, (byte)RpcCalls.SetName, Hazel.SendOption.Reliable, clientId);
             writer.Write(name);
             writer.Write(DontShowOnModdedClient);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
 
-        public static void RpcSetRoleDesync(this PlayerControl player, RoleTypes role, int clientId)
+        // RENEGADE_R2C_SETROLE_OVERRIDE_CAPABLE
+        public static void RpcSetRoleDesync(this PlayerControl player, RoleTypes role, int clientId, bool canOverride = false)
         {
-            //player: 名前の変更対象
+            // player: targeted native role view target.
+            // Existing callers keep canOverride=false; Renegade awakening explicitly uses true.
 
-            if (player == null) return;
+            if (player == null || clientId < 0) return;
             if (AmongUsClient.Instance.ClientId == clientId)
             {
-                player.StartCoroutine(player.CoSetRole(role, false));
+                player.StartCoroutine(player.CoSetRole(role, canOverride));
                 return;
             }
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.SetRole, Hazel.SendOption.Reliable, clientId);
             writer.Write((ushort)role);
-            writer.Write(false);
+            writer.Write(canOverride);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
 
@@ -249,13 +281,24 @@ namespace TownOfHostForE
         public static void RpcSpecificMurderPlayer(this PlayerControl killer, PlayerControl target = null)
         {
             if (target == null) target = killer;
+
+            // RENEGADE_R2B_SPECIFIC_MURDER_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
+                    killer,
+                    target,
+                    "RpcSpecificMurderPlayer"))
+            {
+                return;
+            }
+
             if (killer.AmOwner)
             {
                 killer.MurderPlayer(target, SuccessFlags);
             }
             else
             {
-                MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.MurderPlayer, SendOption.Reliable, killer.GetClientId());
+                if (!killer.TryGetClientId(out var clientId)) return;
+                MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.MurderPlayer, SendOption.Reliable, clientId);
                 messageWriter.WriteNetObject(target);
                 messageWriter.Write((int)SuccessFlags);
                 AmongUsClient.Instance.FinishRpcImmediately(messageWriter);
@@ -268,7 +311,8 @@ namespace TownOfHostForE
             {
                 killer.ProtectPlayer(target, colorId);
             }
-            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, killer.GetClientId());
+            if (!killer.TryGetClientId(out var clientId)) return;
+            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, clientId);
             messageWriter.WriteNetObject(target);
             messageWriter.Write(colorId);
             AmongUsClient.Instance.FinishRpcImmediately(messageWriter);
@@ -288,7 +332,8 @@ namespace TownOfHostForE
             else
             {
                 //targetがホスト以外だった場合
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(target.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.None, target.GetClientId());
+                if (!target.TryGetClientId(out var clientId)) return;
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(target.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.None, clientId);
                 writer.WriteNetObject(target);
                 writer.Write(0);
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
@@ -308,7 +353,8 @@ namespace TownOfHostForE
                 player.Shapeshift(target, shouldAnimate);
                 return;
             }
-            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.Shapeshift, SendOption.Reliable, player.GetClientId());
+            if (!player.TryGetClientId(out var clientId)) return;
+            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.Shapeshift, SendOption.Reliable, clientId);
             messageWriter.WriteNetObject(target);
             messageWriter.Write(shouldAnimate);
             AmongUsClient.Instance.FinishRpcImmediately(messageWriter);
@@ -320,7 +366,8 @@ namespace TownOfHostForE
             {
                 if (seer != player)
                 {
-                    MessageWriter msg = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.RejectShapeshift, SendOption.Reliable, seer.GetClientId());
+                    if (!seer.TryGetClientId(out var clientId)) continue;
+                    MessageWriter msg = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.RejectShapeshift, SendOption.Reliable, clientId);
                     AmongUsClient.Instance.FinishRpcImmediately(msg);
                 }
                 else
@@ -331,7 +378,8 @@ namespace TownOfHostForE
         }
         public static void RpcDesyncUpdateSystem(this PlayerControl target, SystemTypes systemType, int amount)
         {
-            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, target.GetClientId());
+            if (!target.TryGetClientId(out var clientId)) return;
+            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(ShipStatus.Instance.NetId, (byte)RpcCalls.UpdateSystem, SendOption.Reliable, clientId);
             messageWriter.Write((byte)systemType);
             messageWriter.WriteNetObject(target);
             messageWriter.Write((byte)amount);
@@ -495,6 +543,7 @@ namespace TownOfHostForE
         {
             if (!pc.IsAlive()) return false;
 
+
             var roleCanUse = (pc.GetRoleClass() as IKiller)?.CanUseImpostorVentButton();
 
             return roleCanUse ?? false;
@@ -528,6 +577,14 @@ namespace TownOfHostForE
         }
         public static void RpcExileV2(this PlayerControl player)
         {
+            // RENEGADE_R2B_RPC_EXILE_V2_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockForcedExile(
+                    player,
+                    "ExtendedPlayerControl.RpcExileV2"))
+            {
+                return;
+            }
+
             player.Exiled();
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(player.NetId, (byte)RpcCalls.Exiled, SendOption.None, -1);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
@@ -581,6 +638,16 @@ namespace TownOfHostForE
         public static void RpcMurderPlayerV2(this PlayerControl killer, PlayerControl target)
         {
             if (target == null) target = killer;
+
+            // RENEGADE_R2B_MURDER_V2_GUARD
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
+                    killer,
+                    target,
+                    "RpcMurderPlayerV2"))
+            {
+                return;
+            }
+
             if (AmongUsClient.Instance.AmClient)
             {
                 killer.MurderPlayer(target, SuccessFlags);
@@ -605,18 +672,30 @@ namespace TownOfHostForE
             // Other Clients
             if (killer.PlayerId != 0)
             {
-                var writer = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.MurderPlayer, SendOption.Reliable, killer.GetClientId());
+                if (!killer.TryGetClientId(out var clientId)) return;
+                var writer = AmongUsClient.Instance.StartRpcImmediately(killer.NetId, (byte)RpcCalls.MurderPlayer, SendOption.Reliable, clientId);
                 writer.WriteNetObject(target);
                 writer.Write((int)MurderResultFlags.FailedProtected);
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
             }
         }
-        public static void NoCheckStartMeeting(this PlayerControl reporter, NetworkedPlayerInfo target)
+        public static bool NoCheckStartMeeting(this PlayerControl reporter, NetworkedPlayerInfo target)
         { /*サボタージュ中でも関係なしに会議を起こせるメソッド
             targetがnullの場合はボタンとなる*/
+            // RENEGADE_R2G_CENTRAL_MEETING_START_GUARD_V2:
+            // ReportDeadBodyを経由しない遅延/直接会議も覚醒中は開始しない。
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.IsAwakeningActive())
+            {
+                Logger.Info(
+                    $"RENEGADE_R2G meeting start blocked reporter={(reporter == null ? byte.MaxValue : reporter.PlayerId)}",
+                    "Renegade");
+                return false;
+            }
+
             MeetingRoomManager.Instance.AssignSelf(reporter, target);
             DestroyableSingleton<HudManager>.Instance.OpenMeetingRoom(reporter);
             reporter.RpcStartMeeting(target);
+            return true;
         }
         public static bool IsModClient(this PlayerControl player) =>
             player != null && RPC.IsCompatibleVersion(player.PlayerId);
@@ -720,6 +799,12 @@ namespace TownOfHostForE
                 case CustomRoles.Shapeshifter:
                     text = ""; Info = "ShapeshifterBlurb";
                     break;
+                case CustomRoles.NormalViper:
+                    return DestroyableSingleton<TranslationController>.Instance.GetString(
+                        InfoLong ? StringNames.ViperBlurbLong : StringNames.ViperBlurb);
+                case CustomRoles.NormalPhantom:
+                    return DestroyableSingleton<TranslationController>.Instance.GetString(
+                        InfoLong ? StringNames.PhantomBlurbLong : StringNames.PhantomBlurb);
                 case CustomRoles.NormalEngineer:
                 case CustomRoles.Engineer:
                     text = ""; Info = "EngineerBlurb";
@@ -728,6 +813,9 @@ namespace TownOfHostForE
                 case CustomRoles.Scientist:
                     text = ""; Info = "ScientistBlurb";
                     break;
+                case CustomRoles.NormalJudge:
+                    return DestroyableSingleton<TranslationController>.Instance.GetString(
+                        InfoLong ? StringNames.JudgeBlurbLong : StringNames.JudgeBlurb);
                 case CustomRoles.Crewmate:
                 case CustomRoles.Impostor:
                     InfoLong = false;
@@ -801,7 +889,8 @@ namespace TownOfHostForE
         {
             var net = pc.NetTransform;
             var num = (ushort)(net.lastSequenceId + 2);
-            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(net.NetId, (byte)RpcCalls.SnapTo, SendOption.None, target.GetClientId());
+            if (!target.TryGetClientId(out var clientId)) return;
+            MessageWriter messageWriter = AmongUsClient.Instance.StartRpcImmediately(net.NetId, (byte)RpcCalls.SnapTo, SendOption.None, clientId);
             NetHelpers.WriteVector2(position, messageWriter);
             messageWriter.Write(num);
             AmongUsClient.Instance.FinishRpcImmediately(messageWriter);

@@ -51,7 +51,9 @@ public sealed class Opportunist : RoleBase, IKiller, IAdditionalWinner, ISchrodi
     private static void SetupOptionItem()
     {
         OptionCanKill = BooleanOptionItem.Create(RoleInfo, 10, OptionName.CanKill, false, false);
-        OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(0f, 180f, 2.5f), 30f, false, OptionCanKill)
+        OptionKillCooldown = FloatOptionItem.Create(RoleInfo, 11, GeneralOption.KillCooldown, new(0f, 180f, 0.5f), 30f, false, OptionCanKill)
+            .SetUiStepMultiplier(2)
+            .SetLegacySavedIndexMultiplier(5)
             .SetValueFormat(OptionFormat.Seconds);
         ShotLimitOpt = IntegerOptionItem.Create(RoleInfo, 13, OptionName.SheriffShotLimit, new(1, 15, 1), 15, false, OptionCanKill)
             .SetValueFormat(OptionFormat.Times);

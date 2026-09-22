@@ -63,7 +63,9 @@ namespace TownOfHostForE.Roles.Animals
 
         private static void SetupOptionItem()
         {
-            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 2.5f), 30f, false)
+            KillCooldown = FloatOptionItem.Create(RoleInfo, 10, GeneralOption.KillCooldown, new(0f, 180f, 0.5f), 30f, false)
+                .SetUiStepMultiplier(2)
+                .SetLegacySavedIndexMultiplier(5)
                 .SetValueFormat(OptionFormat.Seconds);
             BrakiRadius = FloatOptionItem.Create(RoleInfo, 11, OptionName.BombRadius, new(0.5f, 20f, 0.5f), 1f, false)
                 .SetValueFormat(OptionFormat.Multiplier);

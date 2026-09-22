@@ -20,8 +20,14 @@ namespace TownOfHostForE
     {
         public static void Postfix(AmongUsClient __instance)
         {
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.BeginLocalSession(__instance));
             while (!Options.IsLoaded) System.Threading.Tasks.Task.Delay(1);
             Logger.Info($"{__instance.GameId}に参加", "OnGameJoined");
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_REPLACE",
+                    $"Source=OnGameJoined CountBefore={Main.playerVersion.Count}"));
             Main.playerVersion = new Dictionary<byte, PlayerVersion>();
             RPC.RpcVersionCheck();
             SoundManager.Instance.ChangeAmbienceVolume(DataManager.Settings.Audio.AmbienceVolume);
@@ -46,8 +52,16 @@ namespace TownOfHostForE
     {
         public static void Prefix(InnerNetClient __instance, DisconnectReasons reason, string stringReason)
         {
-
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.MarkDisconnectInternal(
+                    __instance, reason, stringReason));
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_CLEAR",
+                    $"Source=DisconnectInternal CountBefore={Main.playerVersion.Count}"));
             Main.playerVersion.Clear();
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("POST_DISCONNECT_VERSIONCHECK_CALL"));
             RPC.RpcVersionCheck();
             if (AmongUsClient.Instance.AmHost && GameStates.IsLobby)
                 ChatCommands.StartButtonReset = true;
@@ -74,6 +88,9 @@ namespace TownOfHostForE
     {
         public static void Postfix(AmongUsClient __instance, [HarmonyArgument(0)] ClientData client)
         {
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.MarkPlayerJoined(__instance, client));
             Logger.Info($"{client.PlayerName}(ClientID:{client.Id})が参加", "Session");
             if (AmongUsClient.Instance.AmHost && client.FriendCode == "" && Options.KickPlayerFriendCodeNotExist.GetBool())
             {
@@ -88,7 +105,23 @@ namespace TownOfHostForE
             }
             BanManager.CheckBanPlayer(client);
             BanManager.CheckDenyNamePlayer(client);
-            RPC.RpcVersionCheck();
+            // HACKING_VERSIONCHECK_ONPLAYERJOINED_TARGETED_AB_V3:
+            // Host announces its MOD version only to the newly joined client.
+            // Existing MOD clients must not receive another host VersionCheck when somebody else joins.
+            // Non-host OnPlayerJoined behavior remains suppressed.
+            if (__instance.AmHost)
+            {
+                RPC.RpcVersionCheck(client.Id);
+                Logger.Info(
+                    $"Host RpcVersionCheck on OnPlayerJoined: JoinedClientId={client.Id}, LocalClientId={__instance.ClientId}",
+                    "VersionCheckAB");
+            }
+            else
+            {
+                Logger.Info(
+                    $"Skip non-host RpcVersionCheck on OnPlayerJoined: JoinedClientId={client.Id}, LocalClientId={__instance.ClientId}",
+                    "VersionCheckAB");
+            }
         }
     }
     [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnPlayerLeft))]
@@ -108,6 +141,9 @@ namespace TownOfHostForE
         }
         public static void Postfix(AmongUsClient __instance, [HarmonyArgument(0)] ClientData data, [HarmonyArgument(1)] DisconnectReasons reason)
         {
+            // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.MarkPlayerLeft(__instance, data, reason));
             var isFailure = false;
 
             try
@@ -151,7 +187,11 @@ namespace TownOfHostForE
                         AntiBlackout.OnDisconnect(data.Character.Data);
                         PlayerGameOptionsSender.RemoveSender(data.Character);
                     }
-                    Main.playerVersion.Remove(data.Character.PlayerId);
+                    // HACKING_SESSION_EPOCH_DIAGNOSTIC_AB_V1
+                    var removedPlayerVersion = Main.playerVersion.Remove(data.Character.PlayerId);
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                        TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_REMOVE",
+                            $"PlayerId={data.Character.PlayerId} Removed={removedPlayerVersion} CountAfter={Main.playerVersion.Count}"));
                     Logger.Info($"{data.PlayerName}(ClientID:{data.Id})が切断(理由:{reason}, ping:{AmongUsClient.Instance.Ping})", "Session");
                 }
             }
@@ -177,7 +217,7 @@ namespace TownOfHostForE
         {
             if (AmongUsClient.Instance.AmHost)
             {
-                OptionItem.SyncAllOptions();
+                // CREATEPLAYER_JOIN_FULLSYNC_SUPPRESS_PERMANENT: CreatePlayer does not rebroadcast all custom settings; MOD joins use the existing targeted VersionCheck settings path.
                 _ = new LateTask(() =>
                 {
                     if (client.Character == null) return;

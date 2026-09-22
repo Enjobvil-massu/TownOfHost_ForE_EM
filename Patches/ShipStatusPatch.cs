@@ -110,6 +110,18 @@ namespace TownOfHostForE
     {
         public static bool Prefix(ShipStatus __instance)
         {
+            // RENEGADE_R2G_GLOBAL_DOOR_CLOSE_LOCKDOWN
+            // 開いているドアを閉める要求だけを拒否する。
+            // DoorsSystemType.UpdateSystem（ドアを開ける/修理する経路）は変更しない。
+            if (AmongUsClient.Instance.AmHost &&
+                global::TownOfHostForE.Roles.Neutral.Renegade.IsAwakeningActive())
+            {
+                Logger.Info(
+                    "R2G awakened chase: CloseDoorsOfType blocked",
+                    "Renegade");
+                return false;
+            }
+
             return !(Options.CurrentGameMode == CustomGameMode.HideAndSeek || Options.IsStandardHAS) || Options.AllowCloseDoors.GetBool();
         }
     }
@@ -121,7 +133,12 @@ namespace TownOfHostForE
             Logger.CurrentMethod();
 
             BGMSettings.SetTaskBGM();
+
+            // MATCHLOG_ONE_MATCH_ONE_FILE_AB_V1:
+            // Hostだけ、ゲーム開始markerより先にlive-readable fileを開く。
+            Modules.MatchLogManager.BeginMatch();
             Logger.Info("-----------ゲーム開始-----------", "Phase");
+
             PetSettings.CheckNotHasPetPlayers();
             Utils.CountAlivePlayers(true);
         }

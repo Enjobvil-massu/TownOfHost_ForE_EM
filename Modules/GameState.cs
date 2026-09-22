@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using AmongUs.GameOptions;
 using HarmonyLib;
 
 using TownOfHostForE.Attributes;
+using TownOfHostForE.Modules;
 using TownOfHostForE.Roles.Core;
 using TownOfHostForE.Roles.Neutral;
 
@@ -64,12 +65,15 @@ namespace TownOfHostForE
                     RoleTypes.GuardianAngel => CustomRoles.GuardianAngel,
                     RoleTypes.Impostor => CustomRoles.Impostor,
                     RoleTypes.Shapeshifter => CustomRoles.Shapeshifter,
-                    RoleTypes.Phantom => CustomRoles.Phantom,
+                    RoleTypes.Phantom => CustomRoles.NormalPhantom,
                     _ => CustomRoles.Crewmate,
                 };
         }
         public void SetMainRole(CustomRoles role)
         {
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "PLAYERSTATE_SET_MAIN_ROLE_ENTER",
+                $"PlayerId={PlayerId} Before={MainRole} After={role}");
             // GOD_GAMBLER_MAINROLE_TRANSITION_PERMANENT: Gambler保持済みプレイヤーがGod化しても共存させない
             if (role == CustomRoles.God)
             {
@@ -89,6 +93,9 @@ namespace TownOfHostForE
                     CustomRoles.BAKURETSUKI => CountTypes.SB,
                     _ => role.IsImpostor() ? CountTypes.Impostor : CountTypes.Crew,
                 };
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "PLAYERSTATE_SET_MAIN_ROLE_RETURN",
+                $"PlayerId={PlayerId} MainRole={MainRole} CountType={CountType}");
         }
         public void SetSubRole(CustomRoles role, bool AllReplace = false)
         {
@@ -108,6 +115,16 @@ namespace TownOfHostForE
 
         public void SetDead()
         {
+            // RENEGADE_R2B_DEATH_STATE_GUARD
+            var renegadeTarget = Utils.GetPlayerById(PlayerId);
+            if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockDeathStateCommit(
+                    renegadeTarget,
+                    DeathReason,
+                    "PlayerState.SetDead"))
+            {
+                return;
+            }
+
             IsDead = true;
             if (AmongUsClient.Instance.AmHost)
             {
@@ -171,17 +188,40 @@ namespace TownOfHostForE
 
         public void Init(PlayerControl player)
         {
+            if (!StartFlowReadiness.CanInitializeTaskState(player))
+            {
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "TASKSTATE_INIT_BLOCKED_BEFORE_READY",
+                    CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
+                return;
+            }
+
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "TASKSTATE_INIT_ENTER",
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
             Logger.Info($"{player.GetNameWithRole()}: InitTask", "TaskState.Init");
-            if (player == null || player.Data == null || player.Data.Tasks == null) return;
+            if (player == null || player.Data == null || player.Data.Tasks == null)
+            {
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "TASKSTATE_INIT_RETURN_NULL_INPUT",
+                    CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
+                return;
+            }
 
             if (!Utils.HasTasks(player.Data, false))
             {
                 AllTasksCount = 0;
+                CriticalStartFlowPacketDiagnostic.Mark(
+                    "TASKSTATE_INIT_RETURN_HAS_TASKS_FALSE",
+                    CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
                 return;
             }
             hasTasks = true;
             AllTasksCount = player.Data.Tasks.Count;
             Logger.Info($"{player.GetNameWithRole()}: TaskCounts = {CompletedTasksCount}/{AllTasksCount}", "TaskState.Init");
+            CriticalStartFlowPacketDiagnostic.Mark(
+                "TASKSTATE_INIT_RETURN_SUCCESS",
+                CriticalStartFlowPacketDiagnostic.PlayerSnapshot(player));
         }
         public void Update(PlayerControl player)
         {

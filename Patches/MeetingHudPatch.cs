@@ -35,8 +35,13 @@ public static class MeetingHudPatch
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.CastVote))]
     public static class CastVotePatch
     {
-        public static bool Prefix(MeetingHud __instance, [HarmonyArgument(0)] byte srcPlayerId /* 投票した人 */ , [HarmonyArgument(1)] byte suspectPlayerId /* 投票された人 */ )
+        public static bool Prefix(MeetingHud __instance, [HarmonyArgument(0)] InnerNet.PlayerId srcPlayerIdV18 /* 投票した人 */ , [HarmonyArgument(1)] InnerNet.PlayerId suspectPlayerIdV18 /* 投票された人 */ )
         {
+            // CASTVOTE_PLAYERID_V18_AB_V1:
+            // Among Us v18 CastVote(PlayerId, PlayerId) にHarmony Prefix引数型を一致させ、
+            // 既存TOH4E処理へは従来どおりbyte PlayerIdとして渡す。
+            byte srcPlayerId = srcPlayerIdV18;
+            byte suspectPlayerId = suspectPlayerIdV18;
             if (AmongUsClient.Instance.AmHost && Options.IsFirstTurnMeetingAbilityBlocked)
             {
                 MeetingVoteManager.Instance?.SetVote(
@@ -53,14 +58,14 @@ public static class MeetingHudPatch
             //インポスターチャット
             if (ImposterChat.ImposterChats(voter,voted) == false)
             {
-                __instance.RpcClearVote(voter.GetClientId());
+                __instance.RpcClearVote(voter.PlayerId);
                 return false;
             }
 
             // SCALES_PORT_PERMANENT: 設定ON時は天秤対象外への投票型会議能力を無効化する
             if (Scales.ShouldBlockMeetingAbilityVote(voter, suspectPlayerId))
             {
-                __instance.RpcClearVote(voter.GetClientId());
+                __instance.RpcClearVote(voter.PlayerId);
                 Utils.SendMessage(
                     Scales.GetAbilityBlockedMessage(),
                     voter.PlayerId,
@@ -71,7 +76,7 @@ public static class MeetingHudPatch
             //ロールの奴
             if (voter.GetRoleClass()?.CheckVoteAsVoter(voted) == false)
             {
-                __instance.RpcClearVote(voter.GetClientId());
+                __instance.RpcClearVote(voter.PlayerId);
                 Logger.Info($"{voter.GetNameWithRole()} は投票しない", nameof(CastVotePatch));
                 return false;
             }
@@ -79,7 +84,7 @@ public static class MeetingHudPatch
             // SCALES_PORT_PERMANENT: 天秤会議の実投票先は選ばれた2人だけに限定する
             if (!Scales.IsAllowedSpecialVote(suspectPlayerId))
             {
-                __instance.RpcClearVote(voter.GetClientId());
+                __instance.RpcClearVote(voter.PlayerId);
                 Utils.SendMessage(
                     Scales.GetInvalidVoteMessage(),
                     voter.PlayerId,
@@ -105,6 +110,9 @@ public static class MeetingHudPatch
             Main.AllPlayerControls.Do(x => ReportDeadBodyPatch.WaitReport[x.PlayerId].Clear());
             Sending.OnStartMeeting();
             MeetingStates.MeetingCalled = true;
+
+            // DEVICE_TIME_LIMIT_PORT_V21
+            DisableDevice.StartMeetingTimeLimit();
             foreach (var tm in Main.AllAlivePlayerControls.Where(p => p.Is(CustomRoles.TaskManager) || p.Is(CustomRoles.Management)))
                 Utils.NotifyRoles(true, tm);
         }
@@ -112,12 +120,17 @@ public static class MeetingHudPatch
         {
             MeetingVoteManager.Start();
 
+            // VIEWER_NATIVE_TOPOLOGY_LIFECYCLE_AB_V27:
+            // generation確定後、投票前にviewer別meeting-safe topologyを準備。
+            AntiBlackout.PrepareViewerNativeTopologyForMeetingAbV27();
+
             SoundManager.Instance.ChangeAmbienceVolume(0f);
             if (!GameStates.IsModHost) return;
+
             var myRole = PlayerControl.LocalPlayer.GetRoleClass();
             foreach (var pva in __instance.playerStates)
             {
-                var pc = Utils.GetPlayerById(pva.TargetPlayerId);
+                var pc = Utils.GetPlayerById(pva.PlayerId);
                 if (pc == null) continue;
                 var roleTextMeeting = Object.Instantiate(pva.NameText);
                 roleTextMeeting.transform.SetParent(pva.NameText.transform);
@@ -216,8 +229,9 @@ public static class MeetingHudPatch
                     foreach (var seer in Main.AllPlayerControls)
                     {
                         if (seer.IsModClient()) continue;
+                        if (!seer.TryGetClientId(out var clientId)) continue;
                         var sender = CustomRpcSender.Create("SetNameToChat", Hazel.SendOption.Reliable);
-                        sender.StartMessage(seer.GetClientId());
+                        sender.StartMessage(clientId);
 
                         foreach (var seen in Main.AllPlayerControls)
                         {
@@ -239,7 +253,7 @@ public static class MeetingHudPatch
                 var seer = PlayerControl.LocalPlayer;
                 var seerRole = seer.GetRoleClass();
 
-                var target = Utils.GetPlayerById(pva.TargetPlayerId);
+                var target = Utils.GetPlayerById(pva.PlayerId);
                 if (target == null) continue;
 
                 // 初手会議での役職説明表示
@@ -247,7 +261,7 @@ public static class MeetingHudPatch
                 {
                     string RoleInfoTitleString = $"{GetString("RoleInfoTitle")}";
                     string RoleInfoTitle = $"{Utils.ColorString(Utils.GetRoleColor(target.GetCustomRole()), RoleInfoTitleString)}";
-                    Utils.SendMessage(Utils.GetMyRoleInfo(target), sendTo: pva.TargetPlayerId, title: RoleInfoTitle);
+                    Utils.SendMessage(Utils.GetMyRoleInfo(target), sendTo: pva.PlayerId, title: RoleInfoTitle);
                 }
 
                 var sb = new StringBuilder();
@@ -291,7 +305,7 @@ public static class MeetingHudPatch
                     switch (subRole)
                     {
                         case CustomRoles.Lovers:
-                            if (LoversManager.CheckMyLovers(seer.PlayerId,target.PlayerId) || seer.Data.IsDead)
+                            if (LoversManager.CheckMyLovers(seer.PlayerId,target.PlayerId) || seer.Data.IsDead || seer.Is(CustomRoles.God))
                                 //sb.Append(Utils.ColorString(Utils.GetRoleColor(CustomRoles.Lovers), "♥"));
                                 sb.Append(Utils.ColorString(LoversManager.GetLeaderColor(target.PlayerId), "♥"));
                             break;
@@ -336,6 +350,19 @@ public static class MeetingHudPatch
                     showCount++;
                 }
             }
+            // DEVICE_TIME_LIMIT_PORT_V21 / RUNTIME_FIX_V6180_370
+            // Queue after all synchronous meeting notifications.
+            // Keep the existing 3-second chat guard and invisible title.
+            string deviceTimeLimitText =
+                DisableDevice.GetMeetingTimeLimitText();
+
+            if (!string.IsNullOrEmpty(deviceTimeLimitText))
+            {
+                // U+200B prevents the default system-message title.
+                Utils.SendMessage(
+                    deviceTimeLimitText,
+                    title: "\u200B");
+            }
         }
     }
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Update))]
@@ -356,7 +383,7 @@ public static class MeetingHudPatch
             {
                 __instance.playerStates.DoIf(x => x.HighlightedFX.enabled, x =>
                 {
-                    var player = Utils.GetPlayerById(x.TargetPlayerId);
+                    var player = Utils.GetPlayerById(x.PlayerId);
                     player.RpcExile();
                     var state = PlayerState.GetByPlayerId(player.PlayerId);
                     state.DeathReason = CustomDeathReason.Execution;
@@ -382,6 +409,17 @@ public static class MeetingHudPatch
                 // 全員alive GameDataを送る前にofficial RoleTypeを安全化する。
                 AntiBlackout.ApplyPreparedRealExileSafetyPermanent();
                 AntiBlackout.SetIsDead();
+
+                // REMOTE_MOD_EXILE_POST_SETISDEAD_DIRECT_HOOK_AB_V22:
+                // SetIsDead内のSendGameData完了後、pre-votingで記録済みv21 planだけを直ちに再assertする。
+                // 既存V14A lease生成・host canonical role・SetIsDead broadcastは変更しない。
+                ExileControllerWrapUpPatch.VanillaActualExileCriticalLeaseAbV14A
+                    .TrySendRecordedRemoteModPostSetIsDeadReassertAbV21();
+
+                // VIEWER_NATIVE_TOPOLOGY_OUTCOME_BARRIER_AB_V28:
+                // SetIsDead GameData is sent after VotingComplete. Reassert the
+                // outcome-frozen per-viewer topology as the last meeting safety layer.
+                AntiBlackout.ReassertViewerNativeEndMeetingTopologyAfterSetIsDeadAbV28();
             }
             // MeetingVoteManagerを通さずに会議が終了した場合の後処理
             MeetingVoteManager.Instance?.Destroy();
