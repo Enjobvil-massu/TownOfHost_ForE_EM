@@ -37,6 +37,10 @@ namespace TownOfHostForE
             internal bool MeetingSelfSentinelArmed;
             internal byte MeetingSentinelId = byte.MaxValue;
             internal bool EndMeetingBarrierApplied;
+            // DEAD_REMOTE_VANILLA_SKIP_BARRIER_GUARD_AB_V1:
+            // Capture the viewer's authoritative death state before AntiBlackout.SetIsDead()
+            // temporarily rewrites GameData.IsDead=false for every player.
+            internal bool WasDeadBeforeEndMeetingBarrier;
             internal byte PersistentSentinelId = byte.MaxValue;
             internal bool PersistentSentinelWireOverride;
         }
@@ -393,6 +397,30 @@ namespace TownOfHostForE
                 var lease = GetOrCreateViewerNativeTopologyLeaseAbV27(viewer);
                 lease.EndMeetingBarrierApplied = false;
                 lease.MeetingSentinelId = byte.MaxValue;
+                lease.MeetingGeneration =
+                    MeetingVoteManager.H4MeetingGeneration;
+
+                // DEAD_REMOTE_VANILLA_SKIP_BARRIER_GUARD_AB_V1:
+                // A viewer who was already dead before this meeting outcome must keep the
+                // native Ghost role it already owns. The V28 safe plan rewrites every
+                // non-sentinel target to Crewmate; combining that with SetIsDead()'s
+                // temporary IsDead=false creates a Ghost -> Crewmate/alive -> Ghost
+                // transition on the dead Vanilla client. Preserve the pre-meeting ghost
+                // RoleType and let WrapUp restore authoritative GameData normally.
+                lease.WasDeadBeforeEndMeetingBarrier =
+                    viewer.Data != null &&
+                    (viewer.Data.IsDead ||
+                     !viewer.IsAlive() ||
+                     Main.AfterMeetingDeathPlayers.ContainsKey(viewer.PlayerId));
+
+                if (lease.WasDeadBeforeEndMeetingBarrier)
+                {
+                    Logger.Info(
+                        $"Stage=END_BARRIER_PREDEAD_VIEWER_SKIPPED_AB_V1 | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()} | ExiledId={exiledId} | Tie={isTie}",
+                        ViewerNativeTopologyLifecycleAbV27Marker);
+                    continue;
+                }
 
                 // 3-player real exile where this Vanilla viewer is the exiled player
                 // retains the existing V6 specialized self/fallback path. For the
@@ -496,8 +524,24 @@ namespace TownOfHostForE
                         viewer.PlayerId,
                         out var lease) ||
                     lease.MeetingGeneration !=
-                        MeetingVoteManager.H4MeetingGeneration ||
-                    !lease.EndMeetingBarrierApplied ||
+                        MeetingVoteManager.H4MeetingGeneration)
+                {
+                    continue;
+                }
+
+                // DEAD_REMOTE_VANILLA_SKIP_BARRIER_GUARD_AB_V1:
+                // Do not re-apply the living meeting topology after SetIsDead has
+                // temporarily rewritten the viewer's GameData death bit.
+                if (lease.WasDeadBeforeEndMeetingBarrier)
+                {
+                    Logger.Info(
+                        $"Stage=POST_SETISDEAD_PREDEAD_VIEWER_SKIPPED_AB_V1 | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()}",
+                        ViewerNativeTopologyLifecycleAbV27Marker);
+                    continue;
+                }
+
+                if (!lease.EndMeetingBarrierApplied ||
                     lease.MeetingSentinelId == byte.MaxValue)
                 {
                     continue;
@@ -770,6 +814,7 @@ namespace TownOfHostForE
                 lease.MeetingSelfSentinelArmed = false;
                 lease.MeetingSentinelId = byte.MaxValue;
                 lease.EndMeetingBarrierApplied = false;
+                lease.WasDeadBeforeEndMeetingBarrier = false;
             }
 
             Logger.Info(
