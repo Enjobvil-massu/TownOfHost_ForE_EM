@@ -22,6 +22,16 @@ namespace TownOfHostForE.Modules
         private static int sessionEpoch;
         private static long localJoinMs = -1;
 
+        // SAME_GAMEID_REJOIN_VERSIONCHECK_QUIET_AB_V1:
+        // The official game server has repeatedly returned Hacking=10 almost exactly
+        // 15 seconds after OnGameJoined. Limit this A/B to a local session that re-enters
+        // the same GameId; fresh lobbies are untouched.
+        private const long SameGameIdRejoinQuietWindowMsABV1 = 17000;
+        private static int currentGameIdABV1 = int.MinValue;
+        private static bool sameGameIdRejoinABV1;
+        private static long sameGameIdRejoinQuietUntilMsABV1 = -1;
+        private static bool deferredVersionCheckArmedABV1;
+
         // HACKING_SESSION_EPOCH_DIAGNOSTIC_FAIL_OPEN_AB_V2
         internal static void Safe(Action action)
         {
@@ -37,10 +47,90 @@ namespace TownOfHostForE.Modules
 
         internal static void BeginLocalSession(AmongUsClient client)
         {
+            var nowABV1 = Clock.ElapsedMilliseconds;
+            var incomingGameIdABV1 =
+                client == null ? int.MinValue : client.GameId;
+            var previousGameIdABV1 = currentGameIdABV1;
+
+            sameGameIdRejoinABV1 =
+                sessionEpoch > 0 &&
+                incomingGameIdABV1 != int.MinValue &&
+                incomingGameIdABV1 == previousGameIdABV1;
+
             sessionEpoch++;
-            localJoinMs = Clock.ElapsedMilliseconds;
+            localJoinMs = nowABV1;
+            currentGameIdABV1 = incomingGameIdABV1;
+            sameGameIdRejoinQuietUntilMsABV1 =
+                sameGameIdRejoinABV1
+                    ? nowABV1 + SameGameIdRejoinQuietWindowMsABV1
+                    : -1;
+            deferredVersionCheckArmedABV1 = false;
             RemoteJoinMs.Clear();
-            Mark("LOCAL_SESSION_BEGIN", ClientSnapshot(client));
+
+            Mark(
+                "LOCAL_SESSION_BEGIN",
+                ClientSnapshot(client) +
+                $" PreviousGameId={previousGameIdABV1} " +
+                $"SameGameIdRejoin={sameGameIdRejoinABV1} " +
+                $"VersionCheckQuietUntilMs={sameGameIdRejoinQuietUntilMsABV1}");
+        }
+
+        internal static bool TryGetSameGameIdRejoinVersionCheckDelayABV1(
+            out float delaySeconds)
+        {
+            delaySeconds = 0f;
+
+            if (!sameGameIdRejoinABV1 ||
+                sameGameIdRejoinQuietUntilMsABV1 < 0)
+            {
+                return false;
+            }
+
+            var nowABV1 = Clock.ElapsedMilliseconds;
+            var remainingMsABV1 =
+                sameGameIdRejoinQuietUntilMsABV1 - nowABV1;
+
+            if (remainingMsABV1 <= 0)
+            {
+                return false;
+            }
+
+            // Small margin prevents a timer that fires a few milliseconds early
+            // from immediately re-arming itself.
+            delaySeconds =
+                (float)remainingMsABV1 / 1000f + 0.25f;
+            return true;
+        }
+
+        internal static bool TryArmDeferredVersionCheckABV1(
+            out int expectedEpoch,
+            out int expectedGameId)
+        {
+            expectedEpoch = sessionEpoch;
+            expectedGameId = currentGameIdABV1;
+
+            if (deferredVersionCheckArmedABV1)
+            {
+                return false;
+            }
+
+            deferredVersionCheckArmedABV1 = true;
+            return true;
+        }
+
+        internal static bool IsDeferredVersionCheckSessionCurrentABV1(
+            int expectedEpoch,
+            int expectedGameId)
+        {
+            return sessionEpoch == expectedEpoch &&
+                   currentGameIdABV1 == expectedGameId &&
+                   AmongUsClient.Instance != null &&
+                   AmongUsClient.Instance.GameId == expectedGameId;
+        }
+
+        internal static void ReleaseDeferredVersionCheckABV1()
+        {
+            deferredVersionCheckArmedABV1 = false;
         }
 
         internal static void Mark(string stage, string detail = "")
