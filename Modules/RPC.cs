@@ -692,6 +692,68 @@ namespace TownOfHostForE
         }
         public static void RpcVersionCheck(int targetClientId = -1)
         {
+            // SAME_GAMEID_REJOIN_VERSIONCHECK_QUIET_AB_V1:
+            // Do not emit MOD VersionCheck during the exact 15-second server-validation
+            // boundary observed after re-entering the same GameId. One deferred broadcast
+            // resumes the normal handshake after the quiet window; fresh lobbies are unchanged.
+            if (TownOfHostForE.Modules.HackingSessionEpochDiagnostic
+                .TryGetSameGameIdRejoinVersionCheckDelayABV1(
+                    out var rejoinDelayABV1))
+            {
+                var armedABV1 =
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic
+                        .TryArmDeferredVersionCheckABV1(
+                            out var expectedEpochABV1,
+                            out var expectedGameIdABV1);
+
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark(
+                        "VERSIONCHECK_SAME_GAMEID_REJOIN_SUPPRESSED_AB_V1",
+                        $"TargetClientId={targetClientId} " +
+                        $"DelayMs={(int)(rejoinDelayABV1 * 1000f)} " +
+                        $"DeferredArmed={armedABV1}"));
+
+                if (armedABV1)
+                {
+                    _ = new LateTask(
+                        () =>
+                        {
+                            var sessionCurrentABV1 =
+                                TownOfHostForE.Modules.HackingSessionEpochDiagnostic
+                                    .IsDeferredVersionCheckSessionCurrentABV1(
+                                        expectedEpochABV1,
+                                        expectedGameIdABV1);
+
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic
+                                .ReleaseDeferredVersionCheckABV1();
+
+                            if (!sessionCurrentABV1 ||
+                                !GameStates.IsLobby)
+                            {
+                                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                                    TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark(
+                                        "VERSIONCHECK_SAME_GAMEID_REJOIN_RESUME_STALE_AB_V1",
+                                        $"ExpectedEpoch={expectedEpochABV1} " +
+                                        $"ExpectedGameId={expectedGameIdABV1} " +
+                                        $"IsLobby={GameStates.IsLobby}"));
+                                return;
+                            }
+
+                            TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
+                                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark(
+                                    "VERSIONCHECK_SAME_GAMEID_REJOIN_RESUME_AB_V1",
+                                    $"ExpectedEpoch={expectedEpochABV1} " +
+                                    $"ExpectedGameId={expectedGameIdABV1}"));
+
+                            RpcVersionCheck();
+                        },
+                        rejoinDelayABV1,
+                        "Same GameId Rejoin VersionCheck Resume AB V1");
+                }
+
+                return;
+            }
+
             var localPlayer = PlayerControl.LocalPlayer;
             if (localPlayer == null)
             {
