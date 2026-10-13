@@ -89,6 +89,7 @@ namespace TownOfHostForE
                 CustomRoles.Engineer or
                 CustomRoles.Scientist or
                 CustomRoles.GuardianAngel or
+                CustomRoles.Influencer or
                 CustomRoles.Tracker or
                 CustomRoles.Noisemaker or
                 CustomRoles.Impostor or
@@ -108,7 +109,7 @@ namespace TownOfHostForE
         public static bool IsAddAddOn(this CustomRoles role)
         {
             return role.IsMadmate() || 
-                role is CustomRoles.Jackal or CustomRoles.JClient or CustomRoles.RedPanda or CustomRoles.Dolphin;
+                role is CustomRoles.Jackal or CustomRoles.JackalReaver or CustomRoles.JClient or CustomRoles.RedPanda or CustomRoles.Dolphin;
         }
         public static bool IsAddOn(this CustomRoles role) => role.IsBuffAddOn() || role.IsDebuffAddOn();
         public static bool IsBuffAddOn(this CustomRoles role)
@@ -210,6 +211,7 @@ namespace TownOfHostForE
                     CustomRoles.Shapeshifter => roleOpt.GetNumPerGame(RoleTypes.Shapeshifter),
                     CustomRoles.Phantom => roleOpt.GetNumPerGame(RoleTypes.Phantom),
                     CustomRoles.GuardianAngel => roleOpt.GetNumPerGame(RoleTypes.GuardianAngel),
+                    CustomRoles.Influencer => roleOpt.GetNumPerGame(RoleTypes.SpiritGuide),
                     CustomRoles.Crewmate => roleOpt.GetNumPerGame(RoleTypes.Crewmate),
                     _ => 0
                 };
@@ -233,6 +235,7 @@ namespace TownOfHostForE
                     CustomRoles.Shapeshifter => roleOpt.GetChancePerGame(RoleTypes.Shapeshifter),
                     CustomRoles.Phantom => roleOpt.GetChancePerGame(RoleTypes.Phantom),
                     CustomRoles.GuardianAngel => roleOpt.GetChancePerGame(RoleTypes.GuardianAngel),
+                    CustomRoles.Influencer => roleOpt.GetChancePerGame(RoleTypes.SpiritGuide),
                     CustomRoles.Crewmate => roleOpt.GetChancePerGame(RoleTypes.Crewmate),
                     _ => 0
                 };
@@ -270,6 +273,9 @@ namespace TownOfHostForE
                 role is CustomRoles.Badger or
                 CustomRoles.Gizoku or
                 CustomRoles.Nyaoha or
+                CustomRoles.Reaver or
+                CustomRoles.JackalReaver or
+                CustomRoles.Aegis or
                 CustomRoles.DogSheriff or
                 CustomRoles.Dolphin or
                 CustomRoles.SpiderMad;

@@ -337,6 +337,7 @@ namespace TownOfHostForE
                     reason = GameOverReason.ImpostorsByKill;
                     CustomWinnerHolder.ResetAndSetWinner(CustomWinner.Jackal);
                     CustomWinnerHolder.WinnerRoles.Add(CustomRoles.Jackal);
+                    CustomWinnerHolder.WinnerRoles.Add(CustomRoles.JackalReaver);
                     CustomWinnerHolder.WinnerRoles.Add(CustomRoles.JClient);
                 }
                 else if (Imp == 0 && Jackal == 0 && Crew <= Animals) //アニマルズ勝利

@@ -53,7 +53,7 @@ public sealed class NormalViper : RoleBase, IImpostor
     // the player whose custom main role is NormalViper.
     internal static void ApplyObserverDissolveOptionsAbV1(IGameOptions opt)
     {
-        if (opt.TryCast<NormalGameOptionsV11>(out var normalOptions)
+        if (opt.TryCast<NormalGameOptionsV12>(out var normalOptions)
             && normalOptions.roleOptions.TryGetRoleOptions<ViperRoleOptionsV11>(
                 RoleTypes.Viper,
                 out var viperOptions))
@@ -64,7 +64,7 @@ public sealed class NormalViper : RoleBase, IImpostor
 
     public override void ApplyGameOptions(IGameOptions opt)
     {
-        if (opt.TryCast<NormalGameOptionsV11>(out var normalOptions)
+        if (opt.TryCast<NormalGameOptionsV12>(out var normalOptions)
             && normalOptions.roleOptions.TryGetRoleOptions<ViperRoleOptionsV11>(
                 RoleTypes.Viper,
                 out var viperOptions))

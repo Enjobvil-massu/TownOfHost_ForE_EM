@@ -65,6 +65,7 @@ public sealed class NekoKabocha : RoleBase, IImpostor, INekomata
             logger.Info("キラーは仕返し対象ではないので仕返しされません");
             return;
         }
+        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, killer, "NekoKabochaRevenge")) return;
         killer.SetRealKiller(Player);
         PlayerState.GetByPlayerId(killer.PlayerId).DeathReason = CustomDeathReason.Revenge;
         Player.RpcMurderPlayer(killer,true);

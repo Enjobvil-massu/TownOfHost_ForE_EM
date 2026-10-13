@@ -99,8 +99,9 @@ public sealed class LoveCutter : RoleBase
                 playerState.DeathReason = CustomDeathReason.Kill;
                 continue;
             }
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, pc, "LoveCutterExplosion")) continue;
             pc.SetRealKiller(Player);
-            pc.RpcMurderPlayer(pc);
+            TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, pc, () => pc.RpcMurderPlayer(pc));
             playerState.DeathReason = CustomDeathReason.Bombed;
             playerState.SetDead();
         }

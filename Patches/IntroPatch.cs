@@ -71,6 +71,126 @@ namespace TownOfHostForE
             }, 0.01f, "AllRoleIntroLocalTextABV1");
         }
 
+        // VANILLA_INTRO_TOHK_SETNAME_PAYLOAD_AB_V5:
+        // Intro display transport only.
+        // Keep V4 targeted reliable GameDataTo transport, but construct the SetName RPC
+        // with the current TOH-K payload shape: player.NetId / displayName / true.
+        private static bool SendVanillaIntroSelfNameTargetedABV5(
+            PlayerControl player,
+            string displayName,
+            string phase)
+        {
+            if (
+                player == null ||
+                player.Data == null ||
+                player.Data.Disconnected ||
+                player.AmOwner ||
+                player.IsModClient() ||
+                string.IsNullOrEmpty(displayName)
+            )
+            {
+                return false;
+            }
+
+            if (!player.TryGetClientId(out var targetClientId) || targetClientId < 0)
+            {
+                Logger.Warn(
+                    $"VANILLA_INTRO_TOHK_SETNAME_PAYLOAD_AB_V5 SKIP_NO_CLIENT Phase={phase} PlayerId={player.PlayerId}",
+                    "AllRoleIntroAB");
+                return false;
+            }
+
+            try
+            {
+                // VANILLA_INTRO_NATURAL_WRAP_SPACES_AB_V11B
+                // Display-only A/B: plain spaces only; no new TMP tag and no CR/LF.
+                var wireDisplayName = displayName.Replace(
+                    "</size>  ",
+                    "</size>              ");
+
+                var sender = CustomRpcSender.Create(
+                    $"VanillaIntroTohkPayloadABV5-{phase}-P{player.PlayerId}",
+                    Hazel.SendOption.Reliable);
+
+                sender.StartMessage(targetClientId);
+                // VANILLA_INTRO_SETNAME_DATA_NETID_AB_V8A: match RpcSetNamePrivate first payload field.
+                sender.StartRpc(player.NetId, (byte)RpcCalls.SetName)
+                    .Write(player.Data.NetId)
+                    .Write(wireDisplayName)
+                    .Write(true)
+                    .EndRpc();
+                sender.SendMessage();
+
+                Logger.Info(
+                    $"VANILLA_INTRO_SETNAME_DATA_NETID_AB_V8A SEND Phase={phase} PlayerId={player.PlayerId} ClientId={targetClientId} RpcTargetNetId={player.NetId} BodyDataNetId={player.Data.NetId} FinalBool=True Length={wireDisplayName.Length}",
+                    "AllRoleIntroAB");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Exception(ex, "VanillaIntroTohkPayloadABV5");
+                return false;
+            }
+        }
+
+        // VANILLA_INTRO_PRECAPTURE_TIMING_AB_V6A:
+        // Timing A/B only. Do not alter role assignment, native role, task state,
+        // NotifyRoles, StartFlowReadiness, or the existing V5 transport.
+        // Send the already-committed custom role name + short role info to each
+        // remote Vanilla self immediately when RunCustomIntroSync becomes ready,
+        // before diagnostics / task-state work / pets / Utils.NotifyRoles.
+        public static void SendVanillaIntroPreCaptureABV6A()
+        {
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
+            foreach (var player in Main.AllPlayerControls)
+            {
+                if (
+                    player == null ||
+                    player.Data == null ||
+                    player.Data.Disconnected ||
+                    player.AmOwner ||
+                    player.IsModClient()
+                )
+                {
+                    continue;
+                }
+
+                var role = player.GetCustomRole();
+                if (role == CustomRoles.NotAssigned)
+                {
+                    Logger.Warn(
+                        $"VANILLA_INTRO_PRECAPTURE_TIMING_AB_V6A SKIP_NOT_ASSIGNED PlayerId={player.PlayerId}",
+                        "AllRoleIntroAB");
+                    continue;
+                }
+
+                var roleName = Utils.GetRoleName(role);
+                var roleInfo = player.GetRoleInfo() ?? "";
+                var displayName = string.IsNullOrEmpty(roleInfo)
+                    ? Utils.ColorString(Utils.GetRoleColor(role), roleName)
+                    : $"{Utils.ColorString(Utils.GetRoleColor(role), roleName)}\r\n{roleInfo}";
+
+                if (string.IsNullOrEmpty(displayName))
+                {
+                    Logger.Warn(
+                        $"VANILLA_INTRO_PRECAPTURE_TIMING_AB_V6A SKIP_EMPTY PlayerId={player.PlayerId} Role={role}",
+                        "AllRoleIntroAB");
+                    continue;
+                }
+
+                var sent = SendVanillaIntroSelfNameTargetedABV5(
+                    player,
+                    displayName,
+                    "PRECAPTURE_V6A");
+
+                Logger.Info(
+                    $"VANILLA_INTRO_PRECAPTURE_TIMING_AB_V6A {(sent ? "SEND" : "SEND_FAILED")} PlayerId={player.PlayerId} Role={role} Length={displayName.Length}",
+                    "AllRoleIntroAB");
+            }
+        }
+
         private static void SendVanillaAllRoleIntroOverlayABV1()
         {
             if (VanillaIntroOverlaySentABV1) return;
@@ -115,17 +235,16 @@ namespace TownOfHostForE
                 VanillaIntroRestoreSelfNamesABV1[player.PlayerId] = restoreName;
 
                 var role = player.GetCustomRole();
-                var roleName = Utils.GetRoleName(role);
-                var roleInfo = player.GetRoleInfo() ?? "";
-                var introOverlay =
-                    $"{Utils.ColorString(Utils.GetRoleColor(role), roleName)}\r\n{roleInfo}";
 
-                player.RpcSetNamePrivate(
-                    introOverlay,
-                    true,
+                // v245 success authority:
+                // reuse the self-name produced by Utils.NotifyRoles() instead of
+                // constructing a second independent Intro payload.
+                var introOverlay = restoreName;
+
+                SendVanillaIntroSelfNameTargetedABV5(
                     player,
-                    force: true
-                );
+                    introOverlay,
+                    "COBEGIN");
 
                 CriticalStartFlowPacketDiagnostic.Mark(
                     "ALL_ROLE_INTRO_VANILLA_SELF_SEND",
@@ -137,12 +256,111 @@ namespace TownOfHostForE
             }
         }
 
+        private static void ReassertVanillaIntroSelfNameAtShowRoleABV5()
+        {
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
+            foreach (var player in Main.AllPlayerControls)
+            {
+                if (
+                    player == null ||
+                    player.Data == null ||
+                    player.Data.Disconnected ||
+                    player.AmOwner ||
+                    player.IsModClient()
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    !VanillaIntroRestoreSelfNamesABV1.TryGetValue(
+                        player.PlayerId,
+                        out var introOverlay
+                    ) ||
+                    string.IsNullOrEmpty(introOverlay)
+                )
+                {
+                    Logger.Warn(
+                        $"VANILLA_INTRO_TOHK_SETNAME_PAYLOAD_AB_V5 SKIP_NO_CACHED_SELF Phase=SHOWROLE PlayerId={player.PlayerId}",
+                        "AllRoleIntroAB");
+                    continue;
+                }
+
+                SendVanillaIntroSelfNameTargetedABV5(
+                    player,
+                    introOverlay,
+                    "SHOWROLE");
+            }
+        }
+
+        // VANILLA_INTRO_SHOWROLE_CANONICAL_RESEND_AB_V12B
+        // V12A runtime proved that CoBegin NotifyRoles alone does not reach
+        // the Vanilla Intro name capture. Re-send the exact canonical
+        // NotifyRoles self-name synchronously at the ShowRole boundary.
+        private static void ReassertCanonicalNotifyRolesSelfNameAtShowRoleABV12B()
+        {
+            if (!AmongUsClient.Instance.AmHost) return;
+            if (!StartFlowReadiness.CanUseIntroRoleState()) return;
+
+            foreach (var player in Main.AllPlayerControls)
+            {
+                if (
+                    player == null ||
+                    player.Data == null ||
+                    player.Data.Disconnected ||
+                    player.AmOwner ||
+                    player.IsModClient()
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    Main.LastNotifyNames == null ||
+                    !Main.LastNotifyNames.TryGetValue(
+                        (player.PlayerId, player.PlayerId),
+                        out var cachedSelf
+                    ) ||
+                    string.IsNullOrEmpty(cachedSelf)
+                )
+                {
+                    Logger.Warn(
+                        $"VANILLA_INTRO_SHOWROLE_CANONICAL_RESEND_AB_V12B SKIP_NO_CACHED_SELF PlayerId={player.PlayerId}",
+                        "AllRoleIntroAB");
+                    continue;
+                }
+
+                if (
+                    !player.TryGetClientId(out var targetClientId) ||
+                    targetClientId < 0
+                )
+                {
+                    Logger.Warn(
+                        $"VANILLA_INTRO_SHOWROLE_CANONICAL_RESEND_AB_V12B SKIP_NO_CLIENT PlayerId={player.PlayerId}",
+                        "AllRoleIntroAB");
+                    continue;
+                }
+
+                player.RpcSetNamePrivate(
+                    cachedSelf,
+                    true,
+                    player,
+                    force: true
+                );
+
+                Logger.Info(
+                    $"VANILLA_INTRO_SHOWROLE_CANONICAL_RESEND_AB_V12B SEND PlayerId={player.PlayerId} ClientId={targetClientId} Length={cachedSelf.Length}",
+                    "AllRoleIntroAB");
+            }
+        }
         public static void ApplyAllRoleIntroDisplayWhenReadyABV1(IntroCutscene __instance)
         {
             if (!GameStates.IsModHost) return;
             if (!StartFlowReadiness.CanUseIntroRoleState()) return;
 
-            SendVanillaAllRoleIntroOverlayABV1();
+            // VANILLA_INTRO_NOTIFYROLES_SOLE_PRECAPTURE_V12A: cached-self overlay SetName disabled before Intro capture.
 
             if (ShowRoleEnteredABV1)
                 ScheduleLocalAllRoleIntroTextABV1(__instance);
@@ -197,6 +415,11 @@ namespace TownOfHostForE
                 return;
             }
 
+            // VANILLA_SELF_INTRO_GATE_AB_V12C:
+            // V12B ShowRole SetName resend is intentionally disabled for this A/B.
+            // Keep the V12B implementation dormant so this test has one causal variable:
+            // whether gating the Vanilla viewer's own GameData until the role bundle
+            // reaches the client changes the native Intro capture result.
             ApplyAllRoleIntroDisplayWhenReadyABV1(__instance);
         }
     }
@@ -217,6 +440,10 @@ namespace TownOfHostForE
 
         private static void RunCustomIntroSync(IntroCutscene __instance)
         {
+            // VANILLA_INTRO_PRECAPTURE_TIMING_AB_V6A:
+            // This must stay before diagnostics, TaskState.Init, pets and NotifyRoles.
+            // VANILLA_INTRO_NOTIFYROLES_SOLE_PRECAPTURE_V12A: V6A direct SetName disabled; canonical NotifyRoles owns the pre-capture self-name.
+
             CriticalStartFlowPacketDiagnostic.Mark("INTRO_CUSTOM_SYNC_ENTER_READY");
             var logger = Logger.Handler("Info");
             logger.Info("------------名前表示------------");
@@ -290,6 +517,12 @@ namespace TownOfHostForE
             TownOfHostForE.Modules.Priority2to5Diagnostics.Safe(() => TownOfHostForE.Modules.Priority2to5Diagnostics.Pets("GAME_START_RENTAL_AND_OUTFIT_SAVED"));
             CriticalStartFlowPacketDiagnostic.MarkAllPlayers("NOTIFY_ROLES_BEFORE_PLAYER_STATE");
             CriticalStartFlowPacketDiagnostic.Mark("NOTIFY_ROLES_CALL");
+            // VANILLA_INTRO_NOTIFYROLES_SOLE_PRECAPTURE_V12A:
+            // Force TOH4E canonical RpcSetNamePrivate onto the wire before ShowTeam/ShowRole.
+            // Historical v6180.245 success and TOH-K both rely on the normal NotifyRoles self-name path.
+            // VANILLA_INTRO_RESEARCH_PARKED_20260924:
+            // V12A NoCache experiment was runtime FAIL.
+            // Restore normal NotifyRoles behavior.
             Utils.NotifyRoles();
             CriticalStartFlowPacketDiagnostic.Mark("NOTIFY_ROLES_RETURNED");
             CriticalStartFlowPacketDiagnostic.MarkAllPlayers("NOTIFY_ROLES_AFTER_PLAYER_STATE");
@@ -363,6 +596,7 @@ namespace TownOfHostForE
                 switch (role)
                 {
                     case CustomRoles.Jackal:
+                    case CustomRoles.JackalReaver:
                     case CustomRoles.JClient:
                         __instance.TeamTitle.text = Utils.GetRoleName(CustomRoles.Jackal);
                         __instance.TeamTitle.color = Utils.GetRoleColor(CustomRoles.Jackal);
@@ -393,7 +627,7 @@ namespace TownOfHostForE
                         __instance.ImpostorText.text = role switch
                         {
                             CustomRoles.Egoist => GetString("TeamEgoist"),
-                            CustomRoles.Jackal => GetString("TeamJackal"),
+                            CustomRoles.Jackal or CustomRoles.JackalReaver => GetString("TeamJackal"),
                             CustomRoles.JClient => GetString("TeamJackal"),
                             _ => GetString("NeutralInfo"),
                         };

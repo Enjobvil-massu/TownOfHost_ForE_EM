@@ -240,7 +240,7 @@ public sealed class EvilHacker : RoleBase, IImpostor, IKillFlashSeeable
             return;
         }
 
-        if (opt.TryCast<NormalGameOptionsV11>(out var normalOptions)
+        if (opt.TryCast<NormalGameOptionsV12>(out var normalOptions)
             && normalOptions.roleOptions.TryGetRoleOptions<PhantomRoleOptionsV11>(
                 RoleTypes.Phantom,
                 out var phantomOptions))

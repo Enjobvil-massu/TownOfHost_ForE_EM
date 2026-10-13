@@ -415,6 +415,7 @@ public class Ojou : RoleBase
                     target.RpcSetCustomRole(CustomRoles.EOjouSama);
                     break;
                 case CustomRoles.Jackal:
+                case CustomRoles.JackalReaver:
                     target.RpcSetCustomRole(CustomRoles.JOjouSama);
                     break;
                 case CustomRoles.DarkHide:

@@ -48,7 +48,7 @@ public sealed class NormalJudge : RoleBase
 
     public override void ApplyGameOptions(IGameOptions opt)
     {
-        if (opt.TryCast<NormalGameOptionsV11>(out var normalOptions)
+        if (opt.TryCast<NormalGameOptionsV12>(out var normalOptions)
             && normalOptions.roleOptions.TryGetRoleOptions<JudgeRoleOptionsV11>(
                 RoleTypes.Judge,
                 out var judgeOptions))

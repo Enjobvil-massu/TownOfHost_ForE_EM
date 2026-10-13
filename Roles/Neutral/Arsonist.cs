@@ -191,8 +191,9 @@ public sealed class Arsonist : RoleBase, IKiller
                 if (pc.PlayerId != Player.PlayerId)
                 {
                     //生存者は焼殺
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, pc, "Arsonist")) continue;
                     pc.SetRealKiller(Player);
-                    pc.RpcMurderPlayer(pc);
+                    TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, pc, () => pc.RpcMurderPlayer(pc));
                     var state = PlayerState.GetByPlayerId(pc.PlayerId);
                     state.DeathReason = CustomDeathReason.Torched;
                     state.SetDead();

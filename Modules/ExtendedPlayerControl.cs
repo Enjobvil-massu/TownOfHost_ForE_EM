@@ -282,6 +282,8 @@ namespace TownOfHostForE
         {
             if (target == null) target = killer;
 
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(killer, target, "RpcSpecificMurderPlayer")) return;
+
             // RENEGADE_R2B_SPECIFIC_MURDER_GUARD
             if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
                     killer,
@@ -639,6 +641,8 @@ namespace TownOfHostForE
         {
             if (target == null) target = killer;
 
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(killer, target, "RpcMurderPlayerV2")) return;
+
             // RENEGADE_R2B_MURDER_V2_GUARD
             if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
                     killer,
@@ -729,6 +733,7 @@ namespace TownOfHostForE
                 player.GetCustomRole() is
                 CustomRoles.Egoist or
                 CustomRoles.Jackal or
+                CustomRoles.JackalReaver or
                 CustomRoles.Gizoku or
                 CustomRoles.Oniichan or
                 CustomRoles.DarkHide;

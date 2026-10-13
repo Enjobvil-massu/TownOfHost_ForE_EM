@@ -203,7 +203,8 @@ namespace TownOfHostForE.Roles.Animals
                 {
                     //触手くんが死んでいるならキラーも死ぬ
                     //面白いから触手に殺してもらう
-                    shokusyuBoy.RpcMurderPlayer(killer);
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, killer, "KrakenRetaliation")) return;
+                    TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, killer, () => shokusyuBoy.RpcMurderPlayer(killer));
                     return;
                 }
 
@@ -211,7 +212,9 @@ namespace TownOfHostForE.Roles.Animals
                 //生きている触手くんへ各種処理
                 SetShokushuTarget(shokusyuBoy);
                 //触手くんによるキル
-                shokusyuBoy.RpcMurderPlayer(killTarget);
+                if (killTarget == null) return;
+                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, killTarget, "KrakenTentacle")) return;
+                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, killTarget, () => shokusyuBoy.RpcMurderPlayer(killTarget));
                 killCount++;
                 Utils.NotifyRoles(SpecifySeer:Player);
                 CheckWin();

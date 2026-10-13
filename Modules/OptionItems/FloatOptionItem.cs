@@ -68,7 +68,7 @@ namespace TownOfHostForE
             if ((Id == 91529 ||
                  Id == 100092 ||
                  Id == 100093 ||
-                 Id == 100094) &&
+                 Id == 100094 || Id == 41816) &&
                 value <= 0f)
             {
                 return "\u221E";

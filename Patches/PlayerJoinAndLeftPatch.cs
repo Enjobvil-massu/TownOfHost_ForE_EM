@@ -60,9 +60,10 @@ namespace TownOfHostForE
                 TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("PLAYER_VERSION_CLEAR",
                     $"Source=DisconnectInternal CountBefore={Main.playerVersion.Count}"));
             Main.playerVersion.Clear();
+            // POST_DISCONNECT_VERSIONCHECK_SUPPRESS_PERMANENT
             TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Safe(() =>
-                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("POST_DISCONNECT_VERSIONCHECK_CALL"));
-            RPC.RpcVersionCheck();
+                TownOfHostForE.Modules.HackingSessionEpochDiagnostic.Mark("POST_DISCONNECT_VERSIONCHECK_SKIPPED",
+                    $"Reason={reason}"));
             if (AmongUsClient.Instance.AmHost && GameStates.IsLobby)
                 ChatCommands.StartButtonReset = true;
 

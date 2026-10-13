@@ -204,7 +204,7 @@ static class SuperBakuretsuBros
             //確定から5秒経過で本爆裂
             if (TotalTime >= BombLimit + 5)
             {
-                Dictionary<float, PlayerControl> KillDic = new();
+                Dictionary<float, (PlayerControl Source, PlayerControl Target)> KillDic = new();
 
                 foreach (var bombId in bombPlayerId)
                 {
@@ -227,7 +227,7 @@ static class SuperBakuretsuBros
                         if (dis > BombRadius.GetFloat()) continue;
                         if (target != pc)
                         {
-                            KillDic.Add(dis,target);
+                            KillDic.Add(dis, (pc, target));
                         }
                     }
 
@@ -236,10 +236,11 @@ static class SuperBakuretsuBros
                 //距離が近い順からキル
                 foreach (var killsKey in KillDic.Keys.OrderBy(x => x))
                 {
-                    var target = KillDic[killsKey];
+                    var (source, target) = KillDic[killsKey];
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(source, target, "BombParty")) continue;
                     PlayerState.GetByPlayerId(target.PlayerId).DeathReason = CustomDeathReason.Bombed;
                     //target.SetRealKiller(pc);
-                    target.RpcMurderPlayer(target);
+                    TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(source, target, () => target.RpcMurderPlayer(target));
 
                     //生存者が残り1人以下なら抜けて勝者判定へ
                     if (Main.AllAlivePlayerControls.Count() <= 1)

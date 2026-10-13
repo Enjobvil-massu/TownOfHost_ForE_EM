@@ -188,7 +188,7 @@ public sealed class SchrodingerCat : RoleBase, IAdditionalWinner, IDeathReasonSe
         {
             candidates.Add(TeamType.Egoist);
         }
-        if (CustomRoles.Jackal.IsPresent())
+        if (CustomRoles.Jackal.IsPresent() || CustomRoles.JackalReaver.IsPresent())
         {
             candidates.Add(TeamType.Jackal);
         }

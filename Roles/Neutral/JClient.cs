@@ -90,7 +90,7 @@ public sealed class JClient : RoleBase
     {
         if (KnowsJackal())
         {
-            foreach (var jackal in Main.AllPlayerControls.Where(player => player.Is(CustomRoles.Jackal)).ToArray())
+            foreach (var jackal in Main.AllPlayerControls.Where(player => player.GetCustomRole() is CustomRoles.Jackal or CustomRoles.JackalReaver).ToArray())
             {
                 NameColorManager.Add(Player.PlayerId, jackal.PlayerId, jackal.GetRoleColorCode());
             }
@@ -102,7 +102,7 @@ public sealed class JClient : RoleBase
     {
         seen ??= seer;
         if (!CanAlsoBeExposedToJackal ||
-            !seer.Is(CustomRoles.Jackal) || seen.GetRoleClass() is not JClient jclient ||
+            !(seer.GetCustomRole() is CustomRoles.Jackal or CustomRoles.JackalReaver) || seen.GetRoleClass() is not JClient jclient ||
             !jclient.KnowsJackal())
         {
             return string.Empty;
@@ -115,9 +115,10 @@ public sealed class JClient : RoleBase
         //ジャッカル死亡時のクライアント状態変化
         if (AfterJackalDead == AfterJackalDeadMode.None) return;
 
-        var jackal = Main.AllPlayerControls.ToArray().Where(pc => pc.Is(CustomRoles.Jackal)).FirstOrDefault();
-        if (jackal != null && !jackal.Data.IsDead  &&
-            !Main.AfterMeetingDeathPlayers.ContainsKey(jackal.PlayerId)) return;
+        if (Main.AllPlayerControls.Any(pc =>
+            (pc.GetCustomRole() is CustomRoles.Jackal or CustomRoles.JackalReaver) &&
+            pc.Data != null && !pc.Data.Disconnected && pc.IsAlive() &&
+            !Main.AfterMeetingDeathPlayers.ContainsKey(pc.PlayerId))) return;
 
         Logger.Info($"jackal:dead, mode:{AfterJackalDead}", "JClientDeadMode");
 

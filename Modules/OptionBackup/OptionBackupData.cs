@@ -8,6 +8,9 @@ namespace TownOfHostForE
     public class OptionBackupData
     {
         public List<OptionBackupValue> AllValues;
+        // INFLUENCER_V19_NATIVE_GHOST_BRIDGE:
+        // SpiritGuide-specific native option is preserved independently.
+        private readonly float? spiritGuideCooldown;
         public OptionBackupData(IGameOptions option)
         {
             AllValues = new(32);
@@ -37,9 +40,15 @@ namespace TownOfHostForE
             // TryGetUIntが実装されていないため、別で取得する
             AllValues.Add(new UIntOptionBackupValue(UInt32OptionNames.Keywords, (uint)option.Keywords));
 
-            foreach (RoleTypes role in new RoleTypes[] { RoleTypes.Scientist, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.GuardianAngel, RoleTypes.Shapeshifter, RoleTypes.Phantom })
+            foreach (RoleTypes role in new RoleTypes[] { RoleTypes.Scientist, RoleTypes.Engineer, RoleTypes.Noisemaker, RoleTypes.Tracker, RoleTypes.GuardianAngel, RoleTypes.SpiritGuide, RoleTypes.Shapeshifter, RoleTypes.Phantom })
             {
                 AllValues.Add(new RoleRateBackupValue(role, option.RoleOptions.GetNumPerGame(role), option.RoleOptions.GetChancePerGame(role)));
+            }
+
+            if (option.TryCast<NormalGameOptionsV12>(out var normalOptions) &&
+                normalOptions.roleOptions.TryGetRoleOptions(RoleTypes.SpiritGuide, out SpiritGuideRoleOptionsV12 roleOptions))
+            {
+                spiritGuideCooldown = roleOptions.SpiritGuideCooldownSeconds;
             }
         }
 
@@ -49,6 +58,14 @@ namespace TownOfHostForE
             {
                 value.Restore(option);
             }
+
+            if (spiritGuideCooldown.HasValue &&
+                option.TryCast<NormalGameOptionsV12>(out var normalOptions) &&
+                normalOptions.roleOptions.TryGetRoleOptions(RoleTypes.SpiritGuide, out SpiritGuideRoleOptionsV12 roleOptions))
+            {
+                roleOptions.SpiritGuideCooldownSeconds = spiritGuideCooldown.Value;
+            }
+
             return option;
         }
 

@@ -20,6 +20,10 @@ namespace TownOfHostForE
         public static bool OverrideExiledPlayer => Options.NoGameEnd.GetBool() || Jackal.RoleInfo.IsEnable || AnimalsIsEnable();
         public static bool IsCached { get; private set; } = false;
         private static Dictionary<byte, (bool isDead, bool Disconnected)> isDeadCache = new();
+        // INFLUENCER_V19_NATIVE_GHOST_BRIDGE:
+        // Preserve native SpiritGuide identity across temporary AntiBlackout state.
+        private static readonly HashSet<byte> spiritGuideCache = new();
+        public static bool WasSpiritGuide(byte playerId) => spiritGuideCache.Contains(playerId);
         private readonly static LogHandler logger = Logger.Handler("AntiBlackout");
 
         // VIEWER_NATIVE_TOPOLOGY_LIFECYCLE_AB_V27:
@@ -37,6 +41,7 @@ namespace TownOfHostForE
             internal bool MeetingSelfSentinelArmed;
             internal byte MeetingSentinelId = byte.MaxValue;
             internal bool EndMeetingBarrierApplied;
+            internal bool ViewerWasDeadAtOutcome;
             internal byte PersistentSentinelId = byte.MaxValue;
             internal bool PersistentSentinelWireOverride;
         }
@@ -383,6 +388,28 @@ namespace TownOfHostForE
                 return false;
             }
 
+            // V19_4P_SKIP_END_BARRIER_BYPASS_AB_V1:
+            // v19 causal A/B only.
+            // 4+ connected players + normal skip/no-exile + non-tie only.
+            // Keep OverrideExiledPlayer itself, real-exile paths, tie paths,
+            // <=3-player handling, V27 wrap-up restore and ghost logic unchanged.
+            if (exiled == null && !isTie)
+            {
+                var connectedPlayerCountAtOutcome =
+                    Main.AllPlayerControls.Count(
+                        x => x != null &&
+                             x.Data != null &&
+                             !x.Data.Disconnected);
+
+                if (connectedPlayerCountAtOutcome >= 4)
+                {
+                    Logger.Info(
+                        $"Stage=BYPASS | Connected={connectedPlayerCountAtOutcome} | ExiledId=255 | Tie={isTie}",
+                        "V19_4P_SKIP_END_BARRIER_BYPASS_AB_V1");
+                    return false;
+                }
+            }
+
             var exiledId = exiled?.PlayerId ?? byte.MaxValue;
 
             foreach (var viewer in Main.AllPlayerControls)
@@ -393,6 +420,27 @@ namespace TownOfHostForE
                 var lease = GetOrCreateViewerNativeTopologyLeaseAbV27(viewer);
                 lease.EndMeetingBarrierApplied = false;
                 lease.MeetingSentinelId = byte.MaxValue;
+
+                // DEAD_REMOTE_VANILLA_END_BARRIER_SKIP_AB_V1:
+                // Freeze the outcome state before SetIsDead temporarily marks everyone alive.
+                var viewerWasDeadAtOutcome =
+                    viewer.Data != null &&
+                    (viewer.Data.IsDead ||
+                     !viewer.IsAlive() ||
+                     Main.AfterMeetingDeathPlayers.ContainsKey(viewer.PlayerId));
+                lease.ViewerWasDeadAtOutcome = viewerWasDeadAtOutcome;
+
+                if (viewerWasDeadAtOutcome)
+                {
+                    lease.MeetingGeneration = MeetingVoteManager.H4MeetingGeneration;
+                    Logger.Info(
+                        $"Stage=END_BARRIER_PREDEAD_VIEWER_SKIPPED | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()} | DataIsDead={viewer.Data?.IsDead} | " +
+                        $"PlayerStateIsAlive={viewer.IsAlive()} | MeetingGeneration={lease.MeetingGeneration} | " +
+                        $"ExiledId={exiledId} | Tie={isTie}",
+                        ViewerNativeTopologyLifecycleAbV27Marker);
+                    continue;
+                }
 
                 // 3-player real exile where this Vanilla viewer is the exiled player
                 // retains the existing V6 specialized self/fallback path. For the
@@ -496,8 +544,22 @@ namespace TownOfHostForE
                         viewer.PlayerId,
                         out var lease) ||
                     lease.MeetingGeneration !=
-                        MeetingVoteManager.H4MeetingGeneration ||
-                    !lease.EndMeetingBarrierApplied ||
+                        MeetingVoteManager.H4MeetingGeneration)
+                {
+                    continue;
+                }
+
+                // Use the saved outcome state, never the temporary post-SetIsDead Data state.
+                if (lease.ViewerWasDeadAtOutcome)
+                {
+                    Logger.Info(
+                        $"Stage=POST_SETISDEAD_PREDEAD_VIEWER_SKIPPED | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()} | MeetingGeneration={lease.MeetingGeneration}",
+                        ViewerNativeTopologyLifecycleAbV27Marker);
+                    continue;
+                }
+
+                if (!lease.EndMeetingBarrierApplied ||
                     lease.MeetingSentinelId == byte.MaxValue)
                 {
                     continue;
@@ -770,6 +832,7 @@ namespace TownOfHostForE
                 lease.MeetingSelfSentinelArmed = false;
                 lease.MeetingSentinelId = byte.MaxValue;
                 lease.EndMeetingBarrierApplied = false;
+                lease.ViewerWasDeadAtOutcome = false;
             }
 
             Logger.Info(
@@ -899,10 +962,64 @@ namespace TownOfHostForE
                     plan.Add((entry.Target, entry.Role));
                 }
 
-                if (!TrySendViewerNativeRolePlanAbV27(
-                        viewer,
-                        plan,
-                        "POST_WRAPUP_RESTORE_HANDOFF"))
+                // V19_SKIP_NOOP_POST_WRAPUP_ROLE_RESEND_AB_V2:
+                // On a completely no-op normal skip, no temporary/native
+                // meeting topology was installed and there is nothing to restore.
+                // Avoid re-sending identical SetRole RPCs after WrapUp.
+                var connectedCountAtWrapUp =
+                    Main.AllPlayerControls.Count(
+                        x => x != null &&
+                             x.Data != null &&
+                             !x.Data.Disconnected);
+
+                var aliveConnectedCountAtWrapUp =
+                    Main.AllPlayerControls.Count(
+                        x => x != null &&
+                             x.Data != null &&
+                             !x.Data.Disconnected &&
+                             x.IsAlive() &&
+                             !Main.AfterMeetingDeathPlayers.ContainsKey(
+                                 x.PlayerId));
+
+                // V19_SKIP_CONFIRMED_OUTCOME_LEDGER_GUARD_AB_V2_1:
+                // exiled == null alone is insufficient because a true Tie
+                // can also have no exiled player. Use the current TOH4E_EM
+                // H4 outcome ledger to prove this was a completed normal Skip.
+                var hasCurrentOutcomeLedger =
+                    MeetingVoteManager.H4TryGetActualExileLedger(
+                        out var currentOutcomeLedger);
+
+                var isConfirmedNormalSkip =
+                    hasCurrentOutcomeLedger &&
+                    currentOutcomeLedger.Path != "MEETING_STARTED" &&
+                    currentOutcomeLedger.Path != "NONE" &&
+                    !currentOutcomeLedger.IsTie &&
+                    currentOutcomeLedger.ActualExiledPlayerId == byte.MaxValue &&
+                    exiled == null;
+
+                var suppressNoOpRoleRestore =
+                    isConfirmedNormalSkip &&
+                    connectedCountAtWrapUp >= 4 &&
+                    aliveConnectedCountAtWrapUp == connectedCountAtWrapUp &&
+                    Main.AfterMeetingDeathPlayers.Count == 0 &&
+                    authoritativeAliveImpostors.Count > 0 &&
+                    !lease.EndMeetingBarrierApplied &&
+                    lease.MeetingSentinelId == byte.MaxValue &&
+                    !lease.PersistentSentinelWireOverride &&
+                    !desiredPersistentWire;
+
+                if (suppressNoOpRoleRestore)
+                {
+                    Logger.Info(
+                        $"Stage=NOOP_HANDOFF_SUPPRESSED | ViewerId={viewer.PlayerId} | " +
+                        $"ViewerClientId={viewer.GetClientId()} | Connected={connectedCountAtWrapUp} | " +
+                        $"Alive={aliveConnectedCountAtWrapUp} | AuthoritativeAliveImp={authoritativeAliveImpostors.Count}",
+                        "V19_SKIP_NOOP_POST_WRAPUP_ROLE_RESEND_AB_V2");
+                }
+                else if (!TrySendViewerNativeRolePlanAbV27(
+                             viewer,
+                             plan,
+                             "POST_WRAPUP_RESTORE_HANDOFF"))
                 {
                     continue;
                 }
@@ -932,6 +1049,11 @@ namespace TownOfHostForE
                     $"PersistentSentinelId={desiredPersistentId} | " +
                     $"PersistentWire={desiredPersistentWire}",
                     ViewerNativeTopologyLifecycleAbV27Marker);
+            }
+
+            foreach (var lease in ViewerNativeTopologyLeasesAbV27.Values)
+            {
+                lease.ViewerWasDeadAtOutcome = false;
             }
         }
 
@@ -986,10 +1108,15 @@ namespace TownOfHostForE
                 return;
             }
             isDeadCache.Clear();
+            spiritGuideCache.Clear();
             foreach (var info in GameData.Instance.AllPlayers)
             {
                 if (info == null) continue;
                 isDeadCache[info.PlayerId] = (info.IsDead, info.Disconnected);
+                if (info.Role?.Role == RoleTypes.SpiritGuide)
+                {
+                    spiritGuideCache.Add(info.PlayerId);
+                }
                 info.IsDead = false;
                 info.Disconnected = false;
             }
@@ -1752,6 +1879,7 @@ internal static void Priority2to5CaptureRestore()
             logger.Info("==Reset==");
             if (isDeadCache == null) isDeadCache = new();
             isDeadCache.Clear();
+            spiritGuideCache.Clear();
             IsCached = false;
 
             // ExileDisplayRealPermanent: ゲーム初期化時に前ゲームの一時安全化状態を破棄

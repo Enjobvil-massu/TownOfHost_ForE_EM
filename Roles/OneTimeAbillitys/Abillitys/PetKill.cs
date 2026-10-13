@@ -90,6 +90,7 @@ public static class PetKill
         var killTargetKeys = KillDic.Keys.OrderBy(x => x).FirstOrDefault();
         var target = KillDic[killTargetKeys];
 
+        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(killer, target, "PetKill")) return;
         if (!CanBeKilledBy(target))
         {
             Utils.MarkEveryoneDirtySettings();
@@ -98,7 +99,7 @@ public static class PetKill
         }
 
         target.SetRealKiller(killer);
-        target.RpcMurderPlayer(target);
+        TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(killer, target, () => target.RpcMurderPlayer(target));
         Utils.MarkEveryoneDirtySettings();
         Utils.NotifyRoles();
 

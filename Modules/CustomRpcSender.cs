@@ -262,6 +262,8 @@ namespace TownOfHostForE
         }
         public static void RpcMurderPlayer(this CustomRpcSender sender, PlayerControl player, PlayerControl target, int targetClientId = -1)
         {
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(player, target, "CustomRpcSender")) return;
+
             // RENEGADE_R2B_CUSTOM_RPC_MURDER_GUARD
             if (global::TownOfHostForE.Roles.Neutral.Renegade.ShouldBlockPlayerCausedMurder(
                     player,

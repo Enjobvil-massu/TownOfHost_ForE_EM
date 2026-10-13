@@ -148,7 +148,8 @@ namespace TownOfHostForE.Roles.Impostor
                                 return;
                             }
 
-                            targetControl.RpcMurderPlayer(targetControl);
+                            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, targetControl, "JapPupTimeout")) { RemoveShapeTarget(targetPlayerId); return; }
+                            TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, targetControl, () => targetControl.RpcMurderPlayer(targetControl));
                             RemoveShapeTarget(targetPlayerId);
                             Utils.MarkEveryoneDirtySettings();
                             Utils.NotifyRoles();
@@ -324,15 +325,16 @@ namespace TownOfHostForE.Roles.Impostor
                     continue;
                 }
 
-                var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
+                var KillRange = NormalGameOptionsV12.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
                 float targetDistance = Vector2.Distance(
                     targetControl.transform.position,
                     shapeTargetControl.transform.position);
 
                 if (targetDistance <= KillRange)
                 {
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, shapeTargetControl, "JapPupRemote")) return;
                     shapeTargetControl.SetRealKiller(targetControl);
-                    targetControl.RpcMurderPlayer(shapeTargetControl);
+                    TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, shapeTargetControl, () => targetControl.RpcMurderPlayer(shapeTargetControl));
                     killedFlag = true;
                     RemoveShapeTarget(targetId);
                     Utils.MarkEveryoneDirtySettings();

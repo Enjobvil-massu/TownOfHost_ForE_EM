@@ -332,7 +332,7 @@ namespace TownOfHostForE
                             case "jackal":
                                 GameManager.Instance.enabled = false;
                                 CustomWinnerHolder.WinnerTeam = CustomWinner.Jackal;
-                                foreach (var player in Main.AllPlayerControls.Where(pc => pc.Is(CustomRoles.Jackal) || pc.Is(CustomRoles.JSchrodingerCat)))
+                                foreach (var player in Main.AllPlayerControls.Where(pc => (pc.GetCustomRole() is CustomRoles.Jackal or CustomRoles.JackalReaver) || pc.Is(CustomRoles.JSchrodingerCat)))
                                 {
                                     CustomWinnerHolder.WinnerIds.Add(player.PlayerId);
                                 }

@@ -77,6 +77,7 @@ public sealed class CursedWolf : RoleBase, IImpostor
         Logger.Info($"{target.GetNameWithRole()} : 残り{SpellCount}回", "CursedWolf");
 
         //切り返す
+        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, killer, "CursedWolf")) return false;
         PlayerState.GetByPlayerId(killer.PlayerId).DeathReason = CustomDeathReason.Spell;
         target.RpcMurderPlayer(killer);
         // 自身は斬られない

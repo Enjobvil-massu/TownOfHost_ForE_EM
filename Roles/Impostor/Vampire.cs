@@ -105,6 +105,7 @@ namespace TownOfHostForE.Roles.Impostor
             var vampire = Player;
             if (target.IsAlive())
             {
+                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(vampire, target, "VampireBite")) return;
                 PlayerState.GetByPlayerId(target.PlayerId).DeathReason = CustomDeathReason.Bite;
                 target.SetRealKiller(vampire);
                 CustomRoleManager.OnCheckMurder(

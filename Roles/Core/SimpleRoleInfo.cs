@@ -169,6 +169,10 @@ public class SimpleRoleInfo
                 roleName = CustomRoles.GuardianAngel;
                 customRoleType = CustomRoleTypes.Crewmate;
                 break;
+            case RoleTypes.SpiritGuide:
+                roleName = CustomRoles.Influencer;
+                customRoleType = CustomRoleTypes.Crewmate;
+                break;
             case RoleTypes.Impostor:
                 roleName = CustomRoles.Impostor;
                 customRoleType = CustomRoleTypes.Impostor;

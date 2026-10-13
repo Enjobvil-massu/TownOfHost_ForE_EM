@@ -52,6 +52,7 @@ namespace TownOfHostForE
         static Dictionary<ArrowInfo, List<string>> TargetArrowsPM = new();
         static Dictionary<byte, Vector3> DeadPosition = new();
         static Dictionary<byte, Vector3> targetPosition = new();
+        static Dictionary<ArrowInfo, Vector3> sourcePosition = new();
         static Dictionary<byte, List<Vector3>> targetPositionM = new();
         static readonly string[] Arrows = {
             "↑",
@@ -73,6 +74,7 @@ namespace TownOfHostForE
             DeadPosition.Clear();
             TargetArrowsP.Clear();
             targetPosition.Clear();
+            sourcePosition.Clear();
         }
         /// <summary>
         /// 新たにターゲット矢印対象を登録
@@ -112,6 +114,55 @@ namespace TownOfHostForE
             if (!TargetArrowsP.Any(a => a.Key.Equals(arrowInfo)))
                 TargetArrowsP[arrowInfo] = "・";
         }
+        // Beam coordinates are owned by the viewer/source pair, independent of legacy positions.
+        public static void AddSourcePosition(byte seer, byte source, Vector3 position)
+        {
+            var viewer = Utils.GetPlayerById(seer);
+            if (viewer == null || viewer.Data == null || viewer.Data.Disconnected || !viewer.IsAlive())
+            {
+                RemoveSourcePosition(seer, source);
+                return;
+            }
+            var requested = new ArrowInfo(seer, source);
+            // ArrowInfo has reference identity as a dictionary key; reuse the display entry's key.
+            var arrowInfo = TargetArrowsP.Keys.FirstOrDefault(a => a.Equals(requested));
+            if (arrowInfo == null)
+            {
+                arrowInfo = requested;
+                TargetArrowsP[arrowInfo] = "・";
+            }
+            sourcePosition[arrowInfo] = position;
+        }
+
+        public static void RemoveSourcePosition(byte seer, byte source)
+        {
+            var requested = new ArrowInfo(seer, source);
+            var removeList = new List<ArrowInfo>(sourcePosition.Keys.Where(a => a.Equals(requested)));
+            foreach (var arrowInfo in removeList)
+            {
+                sourcePosition.Remove(arrowInfo);
+                TargetArrowsP.Remove(arrowInfo);
+            }
+        }
+
+        public static void RemoveSource(byte source)
+        {
+            foreach (var key in sourcePosition.Keys.Where(a => a.To == source).ToArray())
+            {
+                sourcePosition.Remove(key);
+                TargetArrowsP.Remove(key);
+            }
+        }
+
+        public static void RemoveSourceViewer(byte viewer)
+        {
+            foreach (var key in sourcePosition.Keys.Where(a => a.From == viewer).ToArray())
+            {
+                sourcePosition.Remove(key);
+                TargetArrowsP.Remove(key);
+            }
+        }
+
         /// <summary>
         /// 新たに位置の矢印対象を登録
         /// </summary>
@@ -156,7 +207,8 @@ namespace TownOfHostForE
             else if (targetPositionM.ContainsKey(seer))
             {
                 //べた固定で座標保存(1以上増やさない)
-                targetPositionM[seer][0] = targetPositionV;
+                if (targetPositionM[seer].Count == 0) targetPositionM[seer].Add(targetPositionV);
+                else targetPositionM[seer][0] = targetPositionV;
             }
             else
             {
@@ -166,7 +218,7 @@ namespace TownOfHostForE
                         };
             }
             if (!TargetArrowsPM.Any(a => a.Key.Equals(arrowInfo)))
-                TargetArrowsPM[arrowInfo].Add("・");
+                TargetArrowsPM[arrowInfo] = new List<string> { "・" };
         }
         /// <summary>
         /// ターゲットの削除
@@ -210,7 +262,7 @@ namespace TownOfHostForE
             foreach (var a in removeList)
             {
                 TargetArrowsP.Remove(a);
-                targetPosition.Remove(a.From);
+                if (!sourcePosition.Remove(a)) targetPosition.Remove(a.From);
             }
         }
         /// <summary>
@@ -339,7 +391,7 @@ namespace TownOfHostForE
                 {
                     var targetId = arrowInfo.To;
                     var target = Utils.GetPlayerById(targetId);
-                    if (seerIsDead || !target.IsAlive())
+                    if (seerIsDead || target == null || !target.IsAlive())
                     {
                         TargetArrows.Remove(arrowInfo);
                         update = true;
@@ -363,7 +415,8 @@ namespace TownOfHostForE
                         index = ((int)(angle / 45)) % 8;
                     }
                     var arrow = Arrows[index];
-                    if (TargetArrows[arrowInfo] != arrow)
+                    if (!TargetArrows.TryGetValue(arrowInfo, out var previousArrow)) continue;
+                    if (previousArrow != arrow)
                     {
                         TargetArrows[arrowInfo] = arrow;
                         update = true;
@@ -389,7 +442,8 @@ namespace TownOfHostForE
                         continue;
                     }
                     //対象の方角ベクトルを取る
-                    var dir = DeadPosition[target] - seer.transform.position;
+                    if (!DeadPosition.TryGetValue(target, out var deadPosition)) continue;
+                    var dir = deadPosition - seer.transform.position;
                     int index;
                     if (dir.magnitude < 2)
                     {
@@ -406,7 +460,8 @@ namespace TownOfHostForE
                         index = ((int)(angle / 45)) % 8;
                     }
                     var arrow = Arrows[index];
-                    if (TargetArrowsD[arrowInfo] != arrow)
+                    if (!TargetArrowsD.TryGetValue(arrowInfo, out var previousArrow)) continue;
+                    if (previousArrow != arrow)
                     {
                         TargetArrowsD[arrowInfo] = arrow;
                         update = true;
@@ -424,15 +479,19 @@ namespace TownOfHostForE
             {
                 foreach (var arrowInfo in arrowListP)
                 {
-                    if (seerIsDead)
+                    if (seerIsDead || seer.Data == null || seer.Data.Disconnected)
                     {
                         TargetArrowsP.Remove(arrowInfo);
-                        targetPosition.Remove(seer.PlayerId);
+                        if (!sourcePosition.Remove(arrowInfo))
+                            targetPosition.Remove(seer.PlayerId);
                         update = true;
                         continue;
                     }
                     //対象の方角ベクトルを取る
-                    var dir = targetPosition[seer.PlayerId] - seer.transform.position;
+                    if (!sourcePosition.TryGetValue(arrowInfo, out var position) &&
+                        !targetPosition.TryGetValue(seer.PlayerId, out position))
+                        continue;
+                    var dir = position - seer.transform.position;
                     int index;
                     if (dir.magnitude < 2)
                     {
@@ -449,7 +508,8 @@ namespace TownOfHostForE
                         index = ((int)(angle / 45)) % 8;
                     }
                     var arrow = Arrows[index];
-                    if (TargetArrowsP[arrowInfo] != arrow)
+                    if (!TargetArrowsP.TryGetValue(arrowInfo, out var previousArrow)) continue;
+                    if (previousArrow != arrow)
                     {
                         TargetArrowsP[arrowInfo] = arrow;
                         update = true;
@@ -476,8 +536,11 @@ namespace TownOfHostForE
                     }
 
                     int nowIndex = 0;
-                    foreach (var position in targetPositionM[seer.PlayerId])
+                    if (!targetPositionM.TryGetValue(seer.PlayerId, out var positions) ||
+                        !TargetArrowsPM.TryGetValue(arrowInfo, out var currentArrows)) continue;
+                    foreach (var position in positions)
                     {
+                        if (nowIndex >= currentArrows.Count) break;
                         //対象の方角ベクトルを取る
                         //var dir = targetPosition[seer.PlayerId] - seer.transform.position;
                         var dir = position - seer.transform.position;
@@ -497,9 +560,9 @@ namespace TownOfHostForE
                             index = ((int)(angle / 45)) % 8;
                         }
                         var arrow = Arrows[index];
-                        if (TargetArrowsPM[arrowInfo][nowIndex] != arrow)
+                        if (currentArrows[nowIndex] != arrow)
                         {
-                            TargetArrowsPM[arrowInfo][nowIndex] = arrow;
+                            currentArrows[nowIndex] = arrow;
                             update = true;
                         }
 

@@ -353,6 +353,7 @@ SBPHideName,Hide Name,名前を隠す,隱藏姓名
 "Engineer","Engineer","エンジニア","工程师","工程師","Инженер","Engenheiro"
 "Scientist","Scientist","科学者","科学家","科學家","Ученый","Cientista"
 "GuardianAngel","Guardian Angel","守護天使","守护天使","守護天使","Ангел-хранитель","Anjo da Guarda"
+"Influencer","Influencer","インフルエンサー","影响者","影響者","Инфлюенсер","Influenciador"
 "Impostor","Impostor","インポスター","内鬼","偽裝者","Предатель","Impostor"
 "Shapeshifter","Shapeshifter","シェイプシフター","变形者","變形者","Оборотень","Metamorfo"
 "Phantom","Phantom","ファントム","Phantom","Phantom","Phantom","Phantom"
@@ -1614,3 +1615,36 @@ RenegadeInfoLong,"(Neutrals)\nComplete one task at a time and offer it with the 
 RenegadeRequiredOfferings,Required Offerings,奉納回数,奉纳次数,奉納次數,,
 RenegadeAwakenDuration,Awaken Duration,覚醒時間,觉醒时间,覺醒時間,,
 RenegadeAwakenSpeed,Awaken Speed,覚醒時の移動速度,觉醒时移动速度,覺醒時移動速度,,
+Reaver,Reaver,リーヴァー,
+"ReaverInfo","Fire an energy beam with your pet.","ペットを愛でてエネルギービームを放て。",
+"ReaverInfoLong","(Impostor):\nPet your pet to charge an energy beam. Move left or right during the charge to select its direction. The beam kills any player it touches, including fellow Impostors.","[インポスター陣営]\nペットを愛でるとエネルギービームのチャージを開始する。チャージ中に左右へ移動して発射方向を決める。ビームはインポスターの仲間を含め、陣営に関係なく触れたプレイヤーをキルする。",
+ReaverSolarBeamCount,Number of energy beams,エネルギービームの発射回数,
+ReaverFireDelay,Cooldown,クールタイム,
+JackalReaver,Jackal Reaver,ジャッカルリーヴァー,,,,
+JackalReaverInfo,Charge a beam with your pet.,ペットでビームをチャージせよ。,,,,
+JackalReaverInfoLong,"(Jackal team)\nPet to charge; move left or right to aim. Your beam can kill anyone except yourself including Jackal allies. Win with the Jackal team.","[ジャッカル陣営]\nペットを撫でてチャージし、左右移動でビームの方向を決める。ビームは自分以外の全陣営（ジャッカルの仲間も含む）に命中する。通常キルも可能。ジャッカル陣営として勝利する。",,,,
+JackalReaverBeamUses,Beam uses,ビーム使用回数,,,,
+JackalReaverBeamCooldown,Beam cooldown,ビームクールダウン,,,,
+Aegis,Aegis,イージス,,,,
+AegisInfo,Pet to hold your ground and reflect attacks.,ペットで足を止め攻撃を反射せよ。,,,,
+AegisInfoLong,"(Crewmate)\nPet to spend one use and lock your position. During the barrier reflect player-sourced attacks repeatedly; a reflected beam stops. Voting and accidents are excluded. Cooldown starts after the effect ends. The visual is private.","[クルーメイト陣営]\nペットを撫でると1回消費してその場に固定される。バリア中は攻撃者のいる攻撃を何度でも反射し、反射したビームは停止する。投票・自殺・事故は対象外。終了後からクールダウンが始まり、開始時と会議後にも待機が必要。バリア表示は本人だけ。",,,,
+AegisBarrierDuration,Barrier duration,バリア持続時間,,,,
+AegisBarrierCooldown,Barrier cooldown,バリアクールダウン,,,,
+AegisBarrierUses,Barrier uses,バリア使用回数,,,,
+DeathReason.Reflection,Reflection,反射,,,,
+Plumber,Plumber,配管工,,,,
+PlumberInfo,Maintain the pipes and disrupt hostile vent users.,配管を整備し、人外のベント利用を妨害せよ,,,,
+PlumberInfoLong,"(Crewmate)\nComplete one real cleaning task at a time. Every completion counts toward the Crew task win. After the required number of tasks your ability stays unlocked. Hostile players are briefly blinded after exiting a vent. Your optional arrow points to the fixed vent location. Available on Skeld and MIRA HQ (Vent Cleaning) and Airship (Vent Cleaning / Clean Toilet).","[クルーメイト陣営]\n清掃の実タスクを1件ずつ完了する。設定された総数はすべてクルーのタスク勝利にカウントされる。必要数を完了すると能力が永久解禁され、人外がベントから退出した直後に本人の視界を一定時間ほぼ真っ暗にする。矢印を有効にすると配管工本人へ使用されたベントの固定位置を示す。スケルド・MIRA HQはベント清掃、エアシップはベント清掃・トイレ掃除を使用する。",,,,
+PlumberTotalTasks,Total plumbing tasks,総タスク数,,,,
+PlumberUnlockTasks,Tasks required to unlock,能力解禁に必要なタスク数,,,,
+PlumberDarknessDuration,Darkness duration,暗闇時間,,,,
+PlumberVentArrow,Show the used vent location,ベント使用位置を矢印表示,,,,
+PlumberArrowDuration,Vent arrow duration,矢印表示時間,,,,
+PlumberUnlocked,Unlocked,解禁済み,,,,
+PlumberVentCooldown,Plumber vent cooldown,配管工のベントクールダウン,,,,
+PlumberVentMaxTime,Plumber maximum vent time,配管工のベント滞在可能時間,,,,
+
+EvilDyer,Evil Dyer,イビル真っ赤,,,,
+EvilDyerInfo,Dye everyone red,皆を赤色に染めてやるんだ,,,,
+"EvilDyerInfoLong","(Impostor):\nAfter a successful kill all living players become identical red bodies for a limited time.","[インポスター陣営]\n自身がキルすると、生存者全員が一定時間、帽子・スキン・バイザー・ペットのない真っ赤な姿になる。",,,,
+EvilDyerDyeTime,Red body duration,真っ赤になる時間,,,,

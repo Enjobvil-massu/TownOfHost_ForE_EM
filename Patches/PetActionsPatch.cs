@@ -117,8 +117,8 @@ if (!AmongUsClient.Instance.AmHost || GameStates.IsLobby) return;
         // 発射準備中に長押しで再送されるPet RPCは、
         // CancelPet・同期・能力本体より前に破棄する。
         if (playerControl.GetRoleClass() is
-                TownOfHostForE.Roles.Animals.Nyaoha nyaoha &&
-            nyaoha.IsPetAbilityActive)
+                TownOfHostForE.Roles.Core.Class.ISharedBeamPetAbility beamPetAbility &&
+            beamPetAbility.IsBeamPetAbilityActive)
         {
             return;
         }
@@ -472,6 +472,9 @@ public static class PetSettings
             case CustomRoles.Gizoku:
             case CustomRoles.SpiderMad:
             case CustomRoles.Nyaoha:
+            case CustomRoles.Reaver:
+            case CustomRoles.JackalReaver:
+            case CustomRoles.Aegis:
             case CustomRoles.Dolphin:
             case CustomRoles.DogSheriff:
                 AllPetAssign = true;

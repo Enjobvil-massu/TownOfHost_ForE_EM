@@ -6,7 +6,7 @@ namespace TownOfHostForE.Modules;
 
 public static class OptionSaver
 {
-    private const int CurrentValueRuleSchemaVersion = 2;
+    private const int CurrentValueRuleSchemaVersion = 3;
 
     private static readonly DirectoryInfo SaveDataDirectoryInfo = new("./TOH_DATA/SaveData/");
     private static readonly FileInfo OptionSaverFileInfo = new($"{SaveDataDirectoryInfo.FullName}/Options4E.json");
@@ -103,6 +103,13 @@ public static class OptionSaver
                     values = migratedValues;
                 }
 
+                if (serializableOptionsData.ValueRuleSchemaVersion < 3)
+                {
+                    var migratedValues = new int[values.Length];
+                    for (int i = 0; i < values.Length; i++)
+                        migratedValues[i] = ReaverOptionMigration.FromPreviousIndex(id, values[i]);
+                    values = migratedValues;
+                }
                 optionItem.SetAllValues(values);
             }
         }

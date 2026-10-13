@@ -161,6 +161,7 @@ namespace TownOfHostForE.Roles.Animals
                     var pos = target.transform.position;
                     var dis = Vector2.Distance(pos, BombTarget.transform.position);
                     if (dis > brakiRadius) continue;
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(vampire, BombTarget, "BrakiBomb")) continue;
                     var playerState = PlayerState.GetByPlayerId(BombTarget.PlayerId);
                     playerState.DeathReason = CustomDeathReason.Bombed;
 
@@ -171,7 +172,7 @@ namespace TownOfHostForE.Roles.Animals
                             vampire, target,
                             target, target
                         );*/
-                        BombTarget.RpcMurderPlayer(BombTarget);
+                        TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(vampire, BombTarget, () => BombTarget.RpcMurderPlayer(BombTarget));
                     }
                 }
                 if (!isButton && vampire.IsAlive())

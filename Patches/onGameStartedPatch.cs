@@ -156,6 +156,27 @@ namespace TownOfHostForE
         private const string ClientReadyBarrierMarker = "CLIENTREADY_INTRO_BARRIER_AB_PHASE1";
         private const int ClientReadyBarrierMaxRootLength = 900;
 
+        // VANILLA_SELF_INTRO_GATE_AB_V12C
+        //
+        // Current StartFlowReadiness waits for custom role state, but deliberately
+        // does not block the native IntroCutscene. V12A/V12B proved that canonical
+        // SetName packets sent after readiness do not alter the Vanilla Intro copy.
+        //
+        // Gate only the remote Vanilla viewer's OWN NetworkedPlayerInfo on the wire.
+        // Host canonical Data.Disconnected is never mutated.
+        private const string VanillaSelfIntroGateMarkerABV12C =
+            "VANILLA_SELF_INTRO_GATE_AB_V12C";
+
+        // VANILLA_SELF_INTRO_GATE_AB_V12C1:
+        // Current permanent dispatch is max 15 senders x 0.3s ~= 4.5s.
+        // 8s is safety-only; successful role-bundle send releases immediately.
+        private const float VanillaSelfIntroGateSafetyDelayABV12C = 8.0f;
+
+        private static readonly HashSet<byte>
+            VanillaSelfIntroGateViewerIdsABV12C = new();
+
+        private static int VanillaSelfIntroGateGenerationABV12C;
+
         private sealed class ClientReadyBarrierCapturedUInt16
         {
             public int Position { get; }
@@ -187,6 +208,176 @@ namespace TownOfHostForE
                    seer.Data != null &&
                    !seer.Data.Disconnected &&
                    !seer.IsModClient();
+        }
+
+        // VANILLA_SELF_INTRO_GATE_AB_V12C
+        internal static void SendVanillaSelfIntroGateABV12C()
+        {
+            VanillaSelfIntroGateViewerIdsABV12C.Clear();
+            var generation = ++VanillaSelfIntroGateGenerationABV12C;
+
+            if (!AmongUsClient.Instance.AmHost ||
+                Options.CurrentGameMode != CustomGameMode.Standard)
+            {
+                Logger.Info(
+                    $"{VanillaSelfIntroGateMarkerABV12C} SKIP " +
+                    $"AmHost={AmongUsClient.Instance.AmHost} " +
+                    $"Mode={Options.CurrentGameMode}",
+                    "VanillaSelfIntroGateV12C");
+                return;
+            }
+
+            foreach (var viewer in Main.AllPlayerControls)
+            {
+                if (!IsClientReadyBarrierViewer(viewer)) continue;
+                if (!viewer.TryGetClientId(out var clientId)) continue;
+
+                var sender = new CustomRpcSender(
+                    $"{viewer.name}'s Vanilla Self Intro Gate V12C",
+                    SendOption.Reliable,
+                    false);
+
+                try
+                {
+                    sender.StartMessage(clientId);
+
+                    if (!TryAppendClientReadyBarrierSpoof(
+                            sender,
+                            viewer.Data,
+                            out var flagsPosition,
+                            out var beforeFlags,
+                            out var spoofFlags))
+                    {
+                        if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                            sender.stream.Recycle();
+
+                        Logger.Error(
+                            $"{VanillaSelfIntroGateMarkerABV12C} GATE_BUILD_FAILED " +
+                            $"Viewer={viewer.PlayerId} ClientId={clientId}",
+                            "VanillaSelfIntroGateV12C");
+                        continue;
+                    }
+
+                    sender.EndMessage();
+
+                    if (sender.stream.Length > ClientReadyBarrierMaxRootLength)
+                    {
+                        Logger.Error(
+                            $"{VanillaSelfIntroGateMarkerABV12C} GATE_ROOT_TOO_LARGE " +
+                            $"Viewer={viewer.PlayerId} ClientId={clientId} " +
+                            $"Length={sender.stream.Length} " +
+                            $"Limit={ClientReadyBarrierMaxRootLength}",
+                            "VanillaSelfIntroGateV12C");
+
+                        sender.stream.Recycle();
+                        continue;
+                    }
+
+                    sender.SendMessage();
+
+                    VanillaSelfIntroGateViewerIdsABV12C.Add(
+                        viewer.PlayerId);
+
+                    ScheduleVanillaSelfIntroGateSafetyRestoreABV12C(
+                        viewer.PlayerId,
+                        generation);
+
+                    Logger.Info(
+                        $"{VanillaSelfIntroGateMarkerABV12C} GATE_SENT " +
+                        $"Viewer={viewer.PlayerId} ClientId={clientId} " +
+                        $"FlagsPosition={flagsPosition} " +
+                        $"Flags={beforeFlags}->{spoofFlags} " +
+                        $"RootLength={sender.stream.Length}",
+                        "VanillaSelfIntroGateV12C");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Exception(
+                        ex,
+                        "VanillaSelfIntroGateV12C");
+
+                    if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                        sender.stream.Recycle();
+                }
+            }
+        }
+
+        private static void ScheduleVanillaSelfIntroGateSafetyRestoreABV12C(
+            byte viewerId,
+            int generation)
+        {
+            _ = new LateTask(() =>
+            {
+                if (generation != VanillaSelfIntroGateGenerationABV12C)
+                    return;
+
+                if (!VanillaSelfIntroGateViewerIdsABV12C.Contains(viewerId))
+                    return;
+
+                var viewer = Utils.GetPlayerById(viewerId);
+
+                if (viewer == null ||
+                    viewer.Data == null ||
+                    viewer.Data.Disconnected ||
+                    !viewer.TryGetClientId(out var clientId))
+                {
+                    VanillaSelfIntroGateViewerIdsABV12C.Remove(viewerId);
+
+                    Logger.Warn(
+                        $"{VanillaSelfIntroGateMarkerABV12C} SAFETY_DROP " +
+                        $"Viewer={viewerId}",
+                        "VanillaSelfIntroGateV12C");
+                    return;
+                }
+
+                var sender = new CustomRpcSender(
+                    $"{viewer.name}'s Vanilla Self Intro Gate Safety Restore V12C",
+                    SendOption.Reliable,
+                    false);
+
+                try
+                {
+                    sender.StartMessage(clientId);
+
+                    AppendClientReadyBarrierCanonicalRestore(
+                        sender,
+                        viewer.Data);
+
+                    sender.EndMessage();
+
+                    if (sender.stream.Length > ClientReadyBarrierMaxRootLength)
+                    {
+                        Logger.Error(
+                            $"{VanillaSelfIntroGateMarkerABV12C} SAFETY_ROOT_TOO_LARGE " +
+                            $"Viewer={viewerId} Length={sender.stream.Length}",
+                            "VanillaSelfIntroGateV12C");
+
+                        sender.stream.Recycle();
+                        return;
+                    }
+
+                    sender.SendMessage();
+
+                    VanillaSelfIntroGateViewerIdsABV12C.Remove(viewerId);
+
+                    Logger.Warn(
+                        $"{VanillaSelfIntroGateMarkerABV12C} SAFETY_RELEASE_SENT " +
+                        $"Viewer={viewerId} ClientId={clientId} " +
+                        $"RootLength={sender.stream.Length}",
+                        "VanillaSelfIntroGateV12C");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Exception(
+                        ex,
+                        "VanillaSelfIntroGateV12C");
+
+                    if (sender.CurrentState is not CustomRpcSender.State.Finished)
+                        sender.stream.Recycle();
+                }
+            },
+            VanillaSelfIntroGateSafetyDelayABV12C,
+            "VanillaSelfIntroGateSafetyABV12C");
         }
 
         private static void BeginClientReadyBarrierUInt16Capture(MessageWriter writer)
@@ -322,6 +513,108 @@ namespace TownOfHostForE
                 .EndRpc();
         }
 
+        // VANILLA_INTRO_BARRIER_ATOMIC_SETNAME_AB_V7A
+        // Keep the existing ClientReady barrier/role topology byte-for-byte in ordering,
+        // and append only the Vanilla viewer's own custom-role name payload into the
+        // same targeted reliable root immediately before the final self SetRole.
+        private const string ClientReadyBarrierAtomicSetNameMarkerABV7A =
+            "VANILLA_INTRO_BARRIER_ATOMIC_SETNAME_AB_V7A";
+
+        private static bool TryResolveClientReadyBarrierIntroRoleABV7A(
+            PlayerControl viewer,
+            out CustomRoles role,
+            out string roleSource)
+        {
+            role = CustomRoles.NotAssigned;
+            roleSource = "NONE";
+
+            if (viewer == null)
+            {
+                return false;
+            }
+
+            var state = PlayerState.GetByPlayerId(viewer.PlayerId);
+            if (state != null &&
+                state.MainRole != CustomRoles.NotAssigned)
+            {
+                role = state.MainRole;
+                roleSource = "STATE";
+                return true;
+            }
+
+            if (TryGetCommonStandardPlannedRoleABV5(
+                    viewer.PlayerId,
+                    out var plannedRole) &&
+                plannedRole != CustomRoles.NotAssigned)
+            {
+                role = plannedRole;
+                roleSource = "COMMON_STANDARD_PLAN";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryBuildClientReadyBarrierIntroSelfNameABV7A(
+            PlayerControl viewer,
+            out CustomRoles role,
+            out string displayName,
+            out string roleSource)
+        {
+            role = CustomRoles.NotAssigned;
+            displayName = string.Empty;
+            roleSource = "NONE";
+
+            if (!TryResolveClientReadyBarrierIntroRoleABV7A(
+                    viewer,
+                    out role,
+                    out roleSource))
+            {
+                return false;
+            }
+
+            // Native roles keep the official Intro presentation unchanged.
+            if (role.IsVanilla())
+            {
+                return false;
+            }
+
+            var roleName = Utils.GetRoleName(role);
+            if (string.IsNullOrWhiteSpace(roleName))
+            {
+                return false;
+            }
+
+            var roleInfo = GetString($"{role}Info");
+            var roleColor = Utils.GetRoleColorCode(role);
+            if (string.IsNullOrWhiteSpace(roleColor))
+            {
+                roleColor = "#ffffff";
+            }
+
+            // VANILLA_INTRO_NATURAL_WRAP_SPACES_AB_V11B: plain-space natural wrap only.
+            displayName =
+                $"<size=2><color={roleColor}>{roleName}</color> </size>              " +
+                $"<color={roleColor}>{roleInfo}</color>";
+
+            return true;
+        }
+
+        private static void AppendClientReadyBarrierSelfNameABV7A(
+            CustomRpcSender sender,
+            PlayerControl self,
+            string displayName)
+        {
+            // Match the already-tested TOH-K style SetName payload:
+            // Rpc target NetId == body NetId, final bool == true.
+            // VANILLA_INTRO_SETNAME_DATA_NETID_AB_V8A: match RpcSetNamePrivate first payload field.
+            sender.StartRpc(self.NetId, RpcCalls.SetName)
+                .Write(self.Data.NetId)
+                .Write(displayName)
+                .Write(true)
+                .EndRpc();
+        }
+
         private static readonly HashSet<byte> P4SuppressedIntroViewerIds = new();
 
         private static bool TryBuildClientReadyBarrierFallbackSender(
@@ -344,6 +637,19 @@ namespace TownOfHostForE
                     queued.Target,
                     queued.Role,
                     clientId);
+            }
+
+            if (VanillaSelfIntroGateViewerIdsABV12C.Contains(viewer.PlayerId) &&
+                viewer.Data != null)
+            {
+                AppendClientReadyBarrierCanonicalRestore(
+                    fallback,
+                    viewer.Data);
+
+                Logger.Info(
+                    $"{VanillaSelfIntroGateMarkerABV12C} RELEASE_APPENDED_FALLBACK " +
+                    $"Viewer={viewer.PlayerId} ClientId={clientId}",
+                    "VanillaSelfIntroGateV12C");
             }
 
             fallback.EndMessage();
@@ -625,6 +931,59 @@ namespace TownOfHostForE
                     return false;
                 }
 
+                // VANILLA_SELF_INTRO_GATE_AB_V12C3:
+                //
+                // V12C.2 appended the full canonical NetworkedPlayerInfo restore
+                // AFTER the custom SetName. Because that restore serializes the
+                // viewer's canonical NPI/outfit state, it can restore the original
+                // player name after the custom SetName in the same reliable root.
+                //
+                // Release the wire-only self Disconnected gate FIRST. The custom
+                // V7A SetName below must be the final name-affecting write.
+                if (VanillaSelfIntroGateViewerIdsABV12C.Contains(viewer.PlayerId) &&
+                    viewer.Data != null)
+                {
+                    AppendClientReadyBarrierCanonicalRestore(
+                        sender,
+                        viewer.Data);
+
+                    Logger.Info(
+                        $"{VanillaSelfIntroGateMarkerABV12C} " +
+                        $"RELEASE_APPENDED_BEFORE_SETNAME_MAIN " +
+                        $"Viewer={viewer.PlayerId} ClientId={clientId}",
+                        "VanillaSelfIntroGateV12C");
+                }
+
+                if (TryBuildClientReadyBarrierIntroSelfNameABV7A(
+                        viewer,
+                        out var introRoleABV7A,
+                        out var introSelfNameABV7A,
+                        out var introRoleSourceABV7A))
+                {
+                    var rootLengthBeforeSetNameABV7A = sender.stream.Length;
+
+                    AppendClientReadyBarrierSelfNameABV7A(
+                        sender,
+                        self,
+                        introSelfNameABV7A);
+
+                    Logger.Info(
+                        $"{ClientReadyBarrierAtomicSetNameMarkerABV7A} APPENDED " +
+                        $"Viewer={viewer.PlayerId} ClientId={clientId} " +
+                        $"Role={introRoleABV7A} RoleSource={introRoleSourceABV7A} " +
+                        $"SelfNetId={self.NetId} FinalBool=True " +
+                        $"NameLength={introSelfNameABV7A.Length} " +
+                        $"RootLength={rootLengthBeforeSetNameABV7A}->{sender.stream.Length}",
+                        "ClientReadyIntroBarrierAB1");
+                }
+                else
+                {
+                    Logger.Info(
+                        $"{ClientReadyBarrierAtomicSetNameMarkerABV7A} SKIP " +
+                        $"Viewer={viewer.PlayerId} ClientId={clientId}",
+                        "ClientReadyIntroBarrierAB1");
+                }
+
                 AppendClientReadyBarrierSetRole(
                     sender,
                     self,
@@ -899,6 +1258,13 @@ namespace TownOfHostForE
         public static void Prefix()
         {
             if (!AmongUsClient.Instance.AmHost) return;
+
+            // VANILLA_INTRO_RESEARCH_PARKED_20260924:
+            // V12C.2 / V12C.3 self-Disconnected gate was runtime FAIL for
+            // replacing the Vanilla Impostor Intro player-name line.
+            // Keep the implementation dormant for later host-MOD comparison.
+            // No Vanilla self gate is armed during normal role assignment.
+
             TownOfHostForE.Roles.Impostor.EvilHacker.CaptureSimpleAdminEnabledAtGameStart();
             P4SuppressedIntroViewerIds.Clear();
             VanillaIntroRoleMap.Clear();
@@ -2358,7 +2724,17 @@ namespace TownOfHostForE
                         sender.stream.Recycle();
                     return false;
                 }
+
                 sender.SendMessage();
+
+                if (VanillaSelfIntroGateViewerIdsABV12C.Remove(viewerId))
+                {
+                    Logger.Info(
+                        $"{VanillaSelfIntroGateMarkerABV12C} RELEASE_SENT_WITH_ROLE_BUNDLE " +
+                        $"Viewer={viewerId}",
+                        "VanillaSelfIntroGateV12C");
+                }
+
                 return true;
             }
 

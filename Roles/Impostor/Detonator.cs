@@ -103,9 +103,10 @@ public sealed class Detonator : RoleBase, IImpostor,IDoubleTrigger
         if (!GameStates.IsInTask) return false;
 
         var raderTarget = Utils.GetPlayerById(raderTargetIds);
+        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, raderTarget, "Detonator")) return false;
         PlayerState.GetByPlayerId(raderTarget.PlayerId).DeathReason = CustomDeathReason.Bombed;
         raderTarget.SetRealKiller(Player);
-        raderTarget.RpcMurderPlayer(raderTarget);
+        TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, raderTarget, () => raderTarget.RpcMurderPlayer(raderTarget));
 
         Utils.NotifyRoles();
         AURoleOptions.ShapeshifterCooldown = 255f;

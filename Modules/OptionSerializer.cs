@@ -11,7 +11,7 @@ namespace TownOfHostForE.Modules;
 public static class OptionSerializer
 {
     private static LogHandler logger = Logger.Handler(nameof(OptionSerializer));
-    private const string Header = "%TOHOptionsV2%", PreviousHeader = "%TOHOptionsV1%", LegacyHeader = "%TOHOptions%", Footer = "%End%";
+    private const string Header = "%TOHOptionsV3%", V2Header = "%TOHOptionsV2%", PreviousHeader = "%TOHOptionsV1%", LegacyHeader = "%TOHOptions%", Footer = "%End%";
     private static readonly DirectoryInfo exportDir = new("./TOH_DATA/OptionOutputs");
     public static void SaveToClipboard()
     {
@@ -108,6 +108,12 @@ public static class OptionSerializer
         var headerLength = Header.Length;
         var migrateLegacyValueRules = false;
         var migrateMadmateVentCooldown = false;
+        var migrateReaverCooldowns = headerAt < 0;
+        if (headerAt < 0)
+        {
+            headerAt = source.IndexOf(V2Header);
+            headerLength = V2Header.Length;
+        }
 
         // MADMATE_VENT_COOLDOWN_5_TO_1_EXPORT_MIGRATION_V2:
         // V1はID91528が旧5秒刻みだった配布基準(v6180.309以前)として扱う。
@@ -147,7 +153,8 @@ public static class OptionSerializer
             LoadModOptionsString(
                 entries[0],
                 migrateLegacyValueRules,
-                migrateMadmateVentCooldown);
+                migrateMadmateVentCooldown,
+                migrateReaverCooldowns);
             LoadVanillaOptionsString(entries[1]);
             Logger.SendInGame(Utils.ColorString(Color.green, Translator.GetString("Message.LoadedOptions")));
         }
@@ -168,7 +175,8 @@ public static class OptionSerializer
     public static void LoadModOptionsString(
         string source,
         bool migrateLegacyValueRules = false,
-        bool migrateMadmateVentCooldown = false)
+        bool migrateMadmateVentCooldown = false,
+        bool migrateReaverCooldowns = false)
     {
         var modOptions = source.Split('!', StringSplitOptions.RemoveEmptyEntries);
         var parsedModOptions = new Dictionary<int, int>(modOptions.Length);
@@ -209,6 +217,9 @@ public static class OptionSerializer
             {
                 loadedValue *= 5;
             }
+
+            if (migrateReaverCooldowns)
+                loadedValue = ReaverOptionMigration.FromPreviousIndex(option.Id, loadedValue);
 
             option.SetValue(
                 loadedValue,

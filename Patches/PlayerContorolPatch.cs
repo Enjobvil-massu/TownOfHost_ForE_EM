@@ -298,6 +298,12 @@ namespace TownOfHostForE
 
         public static void Prefix(PlayerControl __instance, PlayerControl target, ref bool didSucceed)
         {
+            var attackSource = TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.GetAttackSource(__instance, target);
+            if (didSucceed && TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(attackSource, target, "RpcMurderPlayer"))
+            {
+                didSucceed = false;
+                return;
+            }
             // RENEGADE_R2G_RPC_MURDER_LOCKDOWN
             // CheckMurderを通らない直接RPC経路もHost側で最終遮断する。
             // 覚醒レネゲイド本人（接触キル/タイムアウト自己死）は除外。
@@ -333,11 +339,12 @@ namespace TownOfHostForE
                     _ = new LateTask(
                         () =>
                         {
-                            if (GameStates.IsInTask)
+                            if (GameStates.IsInTask && target.Data != null && !target.Data.Disconnected && target.IsAlive())
                             {
+                                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(attackSource, target, "DelayedShapeshiftKill")) return;
                                 target.RpcShapeshift(target, false);
                                 Camouflage.RpcSetSkin(target, ForceRevert: true, RevertToDefault: true);
-                                target.RpcMurderPlayer(target, true);
+                                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(attackSource, target, () => target.RpcMurderPlayer(target, true));
                             }
                         },
                         1.5f, "RevertShapeshift");
@@ -380,6 +387,20 @@ namespace TownOfHostForE
             var isProtectedByHost = resultFlags.HasFlag(MurderResultFlags.FailedProtected);
             var isFailed = resultFlags.HasFlag(MurderResultFlags.FailedError);
             var isSucceeded = __state = !isProtectedByClient && !isProtectedByHost && !isFailed;
+
+            // A reflected death bypasses role/Guardian defenses, but uses the normal death postfix.
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.IsReflectionDeath(target))
+            {
+                __state = true;
+                if (AmongUsClient.Instance.AmHost)
+                    AntiBlackout.TryRotateViewerNativeSentinelBeforeDeathAbV28(target, "MURDER_LOCAL_PREFIX");
+                return true;
+            }
+            if (isSucceeded && TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.GetAttackSource(__instance, target), target, "MurderPlayer"))
+            {
+                __state = false;
+                return false;
+            }
 
             // RENEGADE_R2G_LOCAL_MURDER_LOCKDOWN
             // Balancer/Penguin等の直接MurderPlayer経路もHost canonical stateで遮断。
@@ -1310,6 +1331,29 @@ namespace TownOfHostForE
                 {
                     ExileControllerWrapUpPatch.VanillaActualExileCriticalLeaseAbV14A
                         .TryPrepareHostExileSafetyDummyLeaseAbV3(target);
+                }
+
+                // INFLUENCER_V19_NATIVE_GHOST_BRIDGE:
+                // Keep official native SpiritGuide instead of collapsing it into Crew/ImpostorGhost.
+                // The outer gate intentionally remains Crew/ImpostorGhost only.
+                var requestedSpiritGuide =
+                    target.GetCustomRole() == CustomRoles.Influencer ||
+                    target.Data?.Role?.Role == RoleTypes.SpiritGuide ||
+                    AntiBlackout.WasSpiritGuide(target.PlayerId);
+
+                if (requestedSpiritGuide)
+                {
+                    roleType = RoleTypes.SpiritGuide;
+
+                    foreach (var seer in Main.AllPlayerControls)
+                    {
+                        SelectRolesPatch.UpdateExileDisplayRoleViewPermanent(
+                            seer.PlayerId,
+                            target.PlayerId,
+                            RoleTypes.SpiritGuide);
+                    }
+
+                    return true;
                 }
 
                 // RENEGADE_R2C_CREWMATE_GHOST

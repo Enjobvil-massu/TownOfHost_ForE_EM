@@ -108,9 +108,10 @@ public sealed class Warlock : RoleBase, IImpostor
                 }
                 var nearest = candidateList.OrderBy(c => c.Value).FirstOrDefault();
                 var killTarget = nearest.Key;
+                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, killTarget, "Warlock")) { CursedPlayer = null!; return; }
                 killTarget.SetRealKiller(Player);
                 Logger.Info($"{killTarget.GetNameWithRole()}was killed", "Warlock");
-                CursedPlayer.RpcMurderPlayer(killTarget);
+                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, killTarget, () => CursedPlayer.RpcMurderPlayer(killTarget));
                 Player.SetKillCooldown();
                 CursedPlayer = null;
             }

@@ -63,6 +63,7 @@ namespace TownOfHostForE
                     RoleTypes.Noisemaker => CustomRoles.Noisemaker,
                     RoleTypes.Tracker => CustomRoles.Tracker,
                     RoleTypes.GuardianAngel => CustomRoles.GuardianAngel,
+                    RoleTypes.SpiritGuide => CustomRoles.Influencer,
                     RoleTypes.Impostor => CustomRoles.Impostor,
                     RoleTypes.Shapeshifter => CustomRoles.Shapeshifter,
                     RoleTypes.Phantom => CustomRoles.NormalPhantom,
@@ -217,7 +218,10 @@ namespace TownOfHostForE
                 return;
             }
             hasTasks = true;
-            AllTasksCount = player.Data.Tasks.Count;
+            // PLUMBER_TASK_TOTAL_V1: one visible vanilla task represents a fixed crew-win total.
+            AllTasksCount = player.GetCustomRole() == CustomRoles.Plumber
+                ? Roles.Crewmate.Plumber.GetTotalTaskCount(player)
+                : player.Data.Tasks.Count;
             Logger.Info($"{player.GetNameWithRole()}: TaskCounts = {CompletedTasksCount}/{AllTasksCount}", "TaskState.Init");
             CriticalStartFlowPacketDiagnostic.Mark(
                 "TASKSTATE_INIT_RETURN_SUCCESS",

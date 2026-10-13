@@ -57,6 +57,7 @@ public static class CustomRoleManager
 
         var info = new MurderInfo(attemptKiller, attemptTarget, appearanceKiller, appearanceTarget);
 
+
         appearanceKiller.ResetKillCooldown();
         if (Options.CurrentGameMode == CustomGameMode.SuperBombParty)
         {
@@ -78,6 +79,11 @@ public static class CustomRoleManager
 
         var killerRole = attemptKiller.GetRoleClass();
         var targetRole = attemptTarget.GetRoleClass();
+        // Resolve valid attacks before Medic/Guarding; delayed dead sources use the explicit attack hooks.
+        if ((info.IsFakeSuicide && !info.IsSuicide || killerRole is IKiller { IsKiller: true }) &&
+            targetRole is Aegis shield && !shield.OnCheckMurderAsTarget(info))
+            return false;
+
 
         // キラーがキル能力持ちなら
         if (killerRole is IKiller killer)
@@ -151,6 +157,7 @@ public static class CustomRoleManager
 
         //ターゲットの処理
         var targetRole = attemptTarget.GetRoleClass();
+
         if (targetRole != null)
             targetRole.OnMurderPlayerAsTarget(info);
 
@@ -172,6 +179,8 @@ public static class CustomRoleManager
             targetState.DeathReason = CustomDeathReason.Kill;
         }
 
+        // Role death callbacks may alter the reason; Reflection remains authoritative.
+        AegisReflectionGuard.PreserveAttribution(attemptTarget);
         targetState.SetDead();
         attemptTarget.SetRealKiller(attemptKiller, true);
 
@@ -641,7 +650,22 @@ public enum CustomRoles
     // RENEGADE_ROLE_REGISTRATION_R1: existing role IDs 0-163 are preserved.
     Renegade = 164,
 
-    _Max = 165,
+    // REAVER_ROLE_REGISTRATION_PERMANENT: append-only; existing IDs remain unchanged.
+    Reaver = 165,
+
+    JackalReaver = 166,
+    Aegis = 167,
+
+    // INFLUENCER_V19_NATIVE_GHOST_BRIDGE: official v19 SpiritGuide identity; existing IDs preserved.
+    Influencer = 168,
+
+    // PLUMBER_ROLE_REGISTRATION_V1: ID 169 is the existing sentinel; all prior enum values stay intact.
+    Plumber = 170,
+
+    // EVIL_DYER_ROLE_REGISTRATION_V6190420: append-only; every existing ID remains unchanged.
+    EvilDyer = 171,
+
+    _Max = 169,
     NotAssigned = 500,
     LastImpostor,
     CompreteCrew,

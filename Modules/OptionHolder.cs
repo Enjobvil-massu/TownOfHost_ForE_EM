@@ -1123,7 +1123,7 @@ namespace TownOfHostForE
             foreach (var Addon in Enum.GetValues(typeof(CustomRoles)).Cast<CustomRoles>().Where(x => x.IsBuffAddOn()))
             {
                 if (Addon == CustomRoles.Loyalty && PlayerRole is
-                    CustomRoles.MadSnitch or CustomRoles.Jackal or CustomRoles.JClient or CustomRoles.LastImpostor or CustomRoles.CompreteCrew or CustomRoles.RedPanda) continue;
+                    CustomRoles.MadSnitch or CustomRoles.Jackal or CustomRoles.JackalReaver or CustomRoles.JClient or CustomRoles.LastImpostor or CustomRoles.CompreteCrew or CustomRoles.RedPanda) continue;
                 if (Addon == CustomRoles.Revenger && PlayerRole is CustomRoles.MadNimrod) continue;
 
                 if (PlayerRole == CustomRoles.God && Addon == CustomRoles.Gambler) // GOD_GAMBLER_OPTION_GUARD_PERMANENT

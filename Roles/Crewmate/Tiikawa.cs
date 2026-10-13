@@ -180,7 +180,7 @@ namespace TownOfHostForE.Roles.Crewmate
                 Vector2 GSpos = player.transform.position;//うさぎの位置
 
                 PlayerControl target = null;
-                var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
+                var KillRange = NormalGameOptionsV12.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
 
                 foreach (var pc in Main.AllAlivePlayerControls)
                 {
@@ -199,6 +199,7 @@ namespace TownOfHostForE.Roles.Crewmate
                 if (target != null)
                 {
                     player.RpcResetAbilityCooldown();
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(player, target, "Tiikawa")) return;
                     target.SetRealKiller(player);
                     player.RpcMurderPlayer(target);
                     Utils.MarkEveryoneDirtySettings();

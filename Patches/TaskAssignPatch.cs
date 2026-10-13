@@ -64,12 +64,21 @@ namespace TownOfHostForE
             if (RoleNullable == null) return;
             CustomRoles role = RoleNullable.Value;
 
+            // PLUMBER_TASK_ASSIGN_V1: ShortTasks prefab Index, never the TaskTypes enum value.
+            if (role == CustomRoles.Plumber)
+            {
+                taskTypeIds = pc != null && Plumber.TryBuildSingleTaskArray(pc, out var plumberTaskIds)
+                    ? plumberTaskIds
+                    : new Il2CppStructArray<byte>(0);
+                return;
+            }
+
             // RENEGADE_TASK_ASSIGN_R1: exactly one concrete vanilla task at a time.
             // HasTask.ForRecompute keeps these tasks out of crew task win / taskbar totals.
             if (role == CustomRoles.Renegade)
             {
                 if (TownOfHostForE.Roles.Neutral.Renegade.ShouldReceiveTask(pc) &&
-                    TownOfHostForE.Roles.Neutral.Renegade.TryBuildSingleTaskArray(out var renegadeTaskIds))
+                    TownOfHostForE.Roles.Neutral.Renegade.TryBuildSingleTaskArray(pc, out var renegadeTaskIds))
                 {
                     taskTypeIds = renegadeTaskIds;
                 }

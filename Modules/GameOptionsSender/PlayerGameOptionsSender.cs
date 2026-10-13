@@ -168,7 +168,7 @@ namespace TownOfHostForE.Modules
         }
 
         public override IGameOptions BasedGameOptions =>
-            Main.RealOptionsData.Restore(new NormalGameOptionsV11(new UnityLogger().Cast<ILogger>()).Cast<IGameOptions>());
+            Main.RealOptionsData.Restore(new NormalGameOptionsV12(new UnityLogger().Cast<ILogger>()).Cast<IGameOptions>());
         public override bool IsDirty { get; protected set; }
 
         public PlayerControl player;
@@ -376,10 +376,12 @@ namespace TownOfHostForE.Modules
             MeetingTimeManager.ApplyGameOptions(opt);
 
             AURoleOptions.ShapeshifterCooldown = Mathf.Max(1f, AURoleOptions.ShapeshifterCooldown);
-            AURoleOptions.ProtectionDurationSeconds = 0f;
+            AURoleOptions.ProtectionDurationSeconds = roleClass is TownOfHostForE.Roles.Crewmate.Aegis aegis ? aegis.VisualDuration : 0f;
+            if (roleClass is TownOfHostForE.Roles.Crewmate.Aegis barrier && barrier.IsBarrierActive)
+                AURoleOptions.PlayerSpeedMod = Main.MinSpeed;
 
             // TASK_BAR_MODE_TYPED_SYNC_PERMANENT: IGameOptionsをInterop TryCastして公式値を型付き反映
-            if (opt.TryCast<AmongUs.GameOptions.NormalGameOptionsV11>(out var normalOptions)
+            if (opt.TryCast<AmongUs.GameOptions.NormalGameOptionsV12>(out var normalOptions)
                 && GameManager.Instance != null
                 && GameManager.Instance.LogicOptions != null)
             {
@@ -387,6 +389,8 @@ namespace TownOfHostForE.Modules
                     (AmongUs.GameOptions.TaskBarMode)(int)
                     GameManager.Instance.LogicOptions.GetTaskBarMode();
             }
+            // PLUMBER_VISION_CAP_V1: expiration rebuilds normal role/add-on vision through this sender.
+            Plumber.ApplyDarknessOptions(player, opt);
             return opt;
         }
 

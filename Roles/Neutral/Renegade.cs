@@ -46,6 +46,24 @@ public sealed class Renegade : RoleBase, IKiller
     private static OptionItem OptionAwakenDuration = null!;
     private static OptionItem OptionAwakenSpeed = null!;
 
+    // RENEGADE_TASK_LOCATION_RANDOM_R1
+    // Initial assignment can occur before the RoleBase instance exists,
+    // so task-selection history is kept by PlayerId.
+    private static readonly System.Collections.Generic.Dictionary<byte, SystemTypes>
+        LastTaskStartAtByPlayer = new();
+
+    private static readonly System.Collections.Generic.Dictionary<byte, int>
+        LastTaskIndexByPlayer = new();
+
+    // Explicit per-game lifecycle reset.
+    // Do not infer a new game from RoleBase creation timing.
+    [TownOfHostForE.Attributes.GameModuleInitializerAttribute]
+    public static void InitTaskSelectionHistory()
+    {
+        LastTaskStartAtByPlayer.Clear();
+        LastTaskIndexByPlayer.Clear();
+    }
+
     private int completedOfferings;
     private bool taskReady;
     private bool awakeningTriggered;
@@ -177,15 +195,29 @@ public sealed class Renegade : RoleBase, IKiller
     }
 
     /// <summary>
-    /// 現在マップに存在するコモン・ロング・ショートの
-    /// 具体的なタスクから一様に1件選択する。
+    /// 現在マップの使用可能な具体的Vanillaタスクを開始場所(StartAt)ごとに分け、
+    /// まず場所を均等ランダム、その場所の中からタスクをランダム選択する。
     ///
-    /// 奉納ごとの重複は許可する。
+    /// 直前と異なる場所が存在する場合は直前の場所を避ける。
+    /// 場所候補が1つしかない場合は同じ場所を許可するが、
+    /// 可能なら直前と同じtask Indexを避ける。
+    ///
+    /// 初回配布はRoleBase生成前に来るため、そこでPlayerIdの古い履歴を破棄する。
     /// </summary>
     public static bool TryBuildSingleTaskArray(
+        PlayerControl player,
         out Il2CppStructArray<byte> taskTypeIds)
     {
         taskTypeIds = new Il2CppStructArray<byte>(0);
+
+        if (player == null)
+        {
+            Logger.Warn(
+                "Player is null; cannot build Renegade task.",
+                LogTag);
+
+            return false;
+        }
 
         if (ShipStatus.Instance == null)
         {
@@ -195,6 +227,8 @@ public sealed class Renegade : RoleBase, IKiller
 
             return false;
         }
+
+        byte playerId = player.PlayerId;
 
         List<NormalPlayerTask> pool = new();
 
@@ -225,14 +259,158 @@ public sealed class Renegade : RoleBase, IKiller
             return false;
         }
 
-        int index = IRandom.Instance.Next(0, pool.Count);
-        NormalPlayerTask selected = pool[index];
+        var roomBuckets =
+            new System.Collections.Generic.Dictionary<
+                SystemTypes,
+                List<NormalPlayerTask>>();
 
-        taskTypeIds = new Il2CppStructArray<byte>(1);
-        taskTypeIds[0] = (byte)selected.Index;
+        var allRooms =
+            new List<SystemTypes>();
+
+        foreach (var task in pool)
+        {
+            SystemTypes startAt = task.StartAt;
+
+            if (!roomBuckets.TryGetValue(
+                    startAt,
+                    out var bucket))
+            {
+                bucket = new List<NormalPlayerTask>();
+                roomBuckets.Add(startAt, bucket);
+                allRooms.Add(startAt);
+            }
+
+            bucket.Add(task);
+        }
+
+        bool hasLastRoom =
+            LastTaskStartAtByPlayer.TryGetValue(
+                playerId,
+                out var lastRoom);
+
+        bool hasLastTask =
+            LastTaskIndexByPlayer.TryGetValue(
+                playerId,
+                out var lastTaskIndex);
+
+        var candidateRooms =
+            new List<SystemTypes>();
+
+        // 原則として直前の部屋を除外。
+        foreach (var room in allRooms)
+        {
+            if (!hasLastRoom || room != lastRoom)
+            {
+                candidateRooms.Add(room);
+            }
+        }
+
+        bool avoidedLastRoom =
+            hasLastRoom &&
+            candidateRooms.Count > 0;
+
+        // マップ/DisableTasks設定の結果、
+        // 直前と同じ部屋しか残らない場合のみ同室を許可。
+        if (candidateRooms.Count <= 0)
+        {
+            foreach (var room in allRooms)
+            {
+                candidateRooms.Add(room);
+            }
+
+            avoidedLastRoom = false;
+        }
+
+        if (candidateRooms.Count <= 0)
+        {
+            Logger.Warn(
+                $"No Renegade task room candidate playerId={playerId} pool={pool.Count}",
+                LogTag);
+
+            return false;
+        }
+
+        var random = IRandom.Instance;
+
+        SystemTypes selectedRoom =
+            candidateRooms[
+                random.Next(
+                    0,
+                    candidateRooms.Count)];
+
+        if (!roomBuckets.TryGetValue(
+                selectedRoom,
+                out var selectedRoomTasks) ||
+            selectedRoomTasks.Count <= 0)
+        {
+            Logger.Warn(
+                $"Selected Renegade room has no task playerId={playerId} room={selectedRoom}",
+                LogTag);
+
+            return false;
+        }
+
+        var taskCandidates =
+            new List<NormalPlayerTask>();
+
+        // 同じ部屋へfallbackした場合でも、
+        // 同じ具体的task Indexの連続だけは可能な限り避ける。
+        foreach (var task in selectedRoomTasks)
+        {
+            if (!hasLastTask ||
+                task.Index != lastTaskIndex)
+            {
+                taskCandidates.Add(task);
+            }
+        }
+
+        bool avoidedLastTask =
+            hasLastTask &&
+            taskCandidates.Count > 0;
+
+        if (taskCandidates.Count <= 0)
+        {
+            foreach (var task in selectedRoomTasks)
+            {
+                taskCandidates.Add(task);
+            }
+
+            avoidedLastTask = false;
+        }
+
+        NormalPlayerTask selected =
+            taskCandidates[
+                random.Next(
+                    0,
+                    taskCandidates.Count)];
+
+        taskTypeIds =
+            new Il2CppStructArray<byte>(1);
+
+        taskTypeIds[0] =
+            (byte)selected.Index;
+
+        LastTaskStartAtByPlayer[playerId] =
+            selected.StartAt;
+
+        LastTaskIndexByPlayer[playerId] =
+            selected.Index;
 
         Logger.Info(
-            $"TaskSelected taskType={selected.TaskType} taskIndex={selected.Index} pool={pool.Count}",
+            $"TaskSelected " +
+            $"playerId={playerId} " +
+            $"taskType={selected.TaskType} " +
+            $"taskIndex={selected.Index} " +
+            $"startAt={selected.StartAt} " +
+            $"pool={pool.Count} " +
+            $"rooms={roomBuckets.Count} " +
+            $"roomCandidates={candidateRooms.Count} " +
+            $"roomTasks={selectedRoomTasks.Count} " +
+            $"taskCandidates={taskCandidates.Count} " +
+            $"previousRoom={(hasLastRoom ? lastRoom.ToString() : "NONE")} " +
+            $"previousTaskIndex={(hasLastTask ? lastTaskIndex.ToString() : "NONE")} " +
+            $"avoidedLastRoom={avoidedLastRoom} " +
+            $"avoidedLastTask={avoidedLastTask}",
             LogTag);
 
         return true;

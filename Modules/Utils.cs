@@ -599,6 +599,8 @@ namespace TownOfHostForE
         private static string GetProgressText(PlayerControl seer, PlayerControl seen = null)
         {
             seen ??= seer;
+            // Aegis barrier state is owner-only, including ghost viewers.
+            if (seer != seen && seen.Is(CustomRoles.Aegis)) return "";
             var comms = IsActive(SystemTypes.Comms);
             bool enabled = seer == seen
                         || (Main.VisibleTasksCount && !seer.IsAlive() && !Options.GhostCanSeeOtherTasks.GetBool())
@@ -901,6 +903,8 @@ namespace TownOfHostForE
             var requireResetCam = player?.GetCustomRole().GetRoleInfo()?.IsDesyncImpostor == true;
             var state = PlayerState.GetByPlayerId(playerId);
             Logger.Info($"{player.GetNameWithRole()}を{reason}で死亡させました", "AfterMeetingDeath");
+            if (reason is CustomDeathReason.Spell or CustomDeathReason.Poisoning or CustomDeathReason.Revenge or CustomDeathReason.Execution &&
+                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(GetPlayerById(state.RealKiller.Item2), player, "ForcedAttackExile")) return;
             state.DeathReason = reason;
             state.SetDead();
             player?.RpcExileV2();
@@ -1143,7 +1147,33 @@ namespace TownOfHostForE
                 // バニラ専用表示は送信しない。
                 if (Main.playerVersion.ContainsKey(targetSeer.PlayerId)) return;
 
-                host.RpcSetNamePrivate(displayName, true, targetSeer, force);
+                // SWITCH_VANILLA_HOST_CHAT_NAME_SAFE_V1:
+                // Vanilla also uses this private name for the ChatBubble sender label.
+                var platform = targetSeer.GetClient()?.PlatformData?.Platform;
+                var viewerDisplayName = displayName;
+                if (platform is Platforms.Switch)
+                {
+                    viewerDisplayName = "";
+                    foreach (var candidate in new[] { Main.nickName, DataManager.player.Customization.Name, hostName })
+                    {
+                        var safeName = (candidate ?? "").RemoveHtmlTags()
+                            .Replace('\r', ' ').Replace('\n', ' ')
+                            .Replace("<", "").Replace(">", "").Trim();
+                        if (safeName.Length == 0) continue;
+                        viewerDisplayName = safeName;
+                        break;
+                    }
+                }
+
+                host.RpcSetNamePrivate(viewerDisplayName, true, targetSeer, force);
+                if (platform is Platforms.Switch)
+                {
+                    Logger.Info(
+                        $"Stage=PLAIN_PRIVATE_HOST_NAME_APPLIED | ViewerId={targetSeer.PlayerId} | " +
+                        $"ViewerClientId={targetSeer.GetClientId()} | Platform={platform} | Force={force} | " +
+                        $"SafeNameLength={viewerDisplayName.Length} | DecoratedNewlineCount={displayName.Count(x => x == '\n')}",
+                        "SWITCH_VANILLA_HOST_CHAT_NAME_SAFE_V1");
+                }
             }
 
             if (seer != null)

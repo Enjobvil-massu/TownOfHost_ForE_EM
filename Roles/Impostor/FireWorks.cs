@@ -127,13 +127,14 @@ public sealed class FireWorks : RoleBase, IImpostor
                             }
                             else
                             {
+                                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, fireTarget, "FireWorks")) continue;
                                 PlayerState.GetByPlayerId(fireTarget.PlayerId).DeathReason = CustomDeathReason.Bombed;
                                 fireTarget.SetRealKiller(Player);
-                                fireTarget.RpcMurderPlayer(fireTarget);
+                                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, fireTarget, () => fireTarget.RpcMurderPlayer(fireTarget));
                             }
                         }
                     }
-                    if (suicide)
+                    if (suicide && Player.IsAlive())
                     {
                         var totalAlive = Main.AllAlivePlayerControls.Count();
                         //自分が最後の生き残りの場合は勝利のために死なない

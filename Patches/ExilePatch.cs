@@ -1226,11 +1226,22 @@ namespace TownOfHostForE
                             continue;
                         }
 
+                        // INFLUENCER_V19_NATIVE_GHOST_BRIDGE:
+                        // Preserve official native SpiritGuide for an already assigned Influencer.
+                        // All non-Influencer cases retain the existing forced CrewmateGhost behavior.
+                        var exiledObject = exiled.Object;
+                        var atomicGhostRole =
+                            AntiBlackout.WasSpiritGuide(exiled.PlayerId) ||
+                            exiled.Role?.Role == RoleTypes.SpiritGuide ||
+                            exiledObject.GetCustomRole() == CustomRoles.Influencer
+                                ? RoleTypes.SpiritGuide
+                                : RoleTypes.CrewmateGhost;
+
                         CustomRpcSender? sender = null;
                         try
                         {
                             Logger.Info(
-                                $"Stage=ATOMIC_POSTSTATE_BUILD | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost=CrewmateGhost",
+                                $"Stage=ATOMIC_POSTSTATE_BUILD | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost={atomicGhostRole}",
                                 "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
 
                             sender = CustomRpcSender.Create(
@@ -1248,12 +1259,12 @@ namespace TownOfHostForE
                                 "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
 
                             sender.StartRpc(exiled.Object.NetId, RpcCalls.SetRole)
-                                .Write((ushort)RoleTypes.CrewmateGhost)
+                                .Write((ushort)atomicGhostRole)
                                 .Write(false)
                                 .EndRpc();
 
                             Logger.Info(
-                                $"Stage=ATOMIC_POSTSTATE_GHOST_WRITTEN | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | Ghost=CrewmateGhost | CanOverride=False | PacketBytes={sender.stream.Length}",
+                                $"Stage=ATOMIC_POSTSTATE_GHOST_WRITTEN | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | Ghost={atomicGhostRole} | CanOverride=False | PacketBytes={sender.stream.Length}",
                                 "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
 
                             sender.EndMessage();
@@ -1270,7 +1281,7 @@ namespace TownOfHostForE
                             sender.SendMessage();
 
                             Logger.Info(
-                                $"Stage=ATOMIC_POSTSTATE_SENT | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost=CrewmateGhost | PacketBytes={packetBytes} | SubmessageCount=2 | DataSubmessageIndex=0 | GhostSubmessageIndex=1",
+                                $"Stage=ATOMIC_POSTSTATE_SENT | MeetingGeneration={plan.MeetingGeneration} | ViewerId={plan.ViewerId} | ViewerClientId={plan.ViewerClientId} | ExiledId={plan.ExiledId} | ExiledWasHost={plan.ExiledWasHost} | ExiledWasRemoteMod={plan.ExiledWasRemoteMod} | HostDataIsDead={exiled.IsDead} | Ghost={atomicGhostRole} | PacketBytes={packetBytes} | SubmessageCount=2 | DataSubmessageIndex=0 | GhostSubmessageIndex=1",
                                 "MOD_EXILE_REMOTE_VANILLA_ATOMIC_POSTSTATE_AB_V6");
                         }
                         catch (Exception ex)
@@ -2560,6 +2571,8 @@ namespace TownOfHostForE
                         var requireResetCam = player?.GetCustomRole().GetRoleInfo()?.IsDesyncImpostor == true;
                         var state = PlayerState.GetByPlayerId(x.Key);
                         Logger.Info($"{player.GetNameWithRole()}を{x.Value}で死亡させました", "AfterMeetingDeath");
+                        if (x.Value is CustomDeathReason.Spell or CustomDeathReason.Poisoning or CustomDeathReason.Revenge or CustomDeathReason.Execution &&
+                            TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Utils.GetPlayerById(state.RealKiller.Item2), player, "AfterMeetingAttack")) return;
                         state.DeathReason = x.Value;
                         state.SetDead();
                         player?.RpcExile();

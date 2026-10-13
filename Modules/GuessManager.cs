@@ -283,6 +283,7 @@ public static class GuessManager
 
                 new LateTask(() =>
                 {
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(pc, dp, "Guesser")) return;
                     var playerState = PlayerState.GetByPlayerId(dp.PlayerId);
                     playerState.DeathReason = tempDeathReason;
                     dp.SetRealKiller(pc);

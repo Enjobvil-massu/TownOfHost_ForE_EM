@@ -197,6 +197,7 @@ class Penguin : RoleBase, IImpostor
             }
             if (AbductTimer <= 0f && !Player.MyPhysics.Animations.IsPlayingAnyLadderAnimation())
             {
+                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, AbductVictim, "PenguinDelayed")) { RemoveVictim(); return; }
                 // 先にIsDeadをtrueにする(はしごチェイス封じ)
                 AbductVictim.Data.IsDead = true;
                 AbductVictim.Data.MarkDirty();

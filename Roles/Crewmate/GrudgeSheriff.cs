@@ -206,13 +206,14 @@ public static void SetUpKillTargetOption(CustomRoles role, int idOffset, bool de
 
         float targetDistance = Vector2.Distance(GSpos, target.transform.position);
 
-        var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
+        var KillRange = NormalGameOptionsV12.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
         if (targetDistance <= KillRange && Player.CanMove && target.CanMove)
         {
             ShotLimit--;
             Logger.Info($"{Player.GetNameWithRole()} : 残り{ShotLimit}発", "GrudgeSheriff");
             Player.RpcResetAbilityCooldown();
 
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, target, "GrudgeSheriff")) { KillWaitPlayerSelect = null!; KillWaitPlayer = null!; return; }
             if (!CanBeKilledBy(target))
             {
                 PlayerState.GetByPlayerId(Player.PlayerId).DeathReason = CustomDeathReason.Misfire;

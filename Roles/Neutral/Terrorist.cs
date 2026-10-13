@@ -87,8 +87,9 @@ public sealed class Terrorist : RoleBase
             {
                 continue;
             }
+            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, otherPlayer, "Explosion")) continue;
             otherPlayer.SetRealKiller(Player);
-            otherPlayer.RpcMurderPlayer(otherPlayer);
+            TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, otherPlayer, () => otherPlayer.RpcMurderPlayer(otherPlayer));
             var playerState = PlayerState.GetByPlayerId(otherPlayer.PlayerId);
             playerState.DeathReason = CustomDeathReason.Bombed;
             playerState.SetDead();

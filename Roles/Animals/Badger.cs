@@ -181,6 +181,13 @@ namespace TownOfHostForE.Roles.Animals
                     }
                     else if (BadgerHoleKillFlag && AlartTarget == target.PlayerId)
                     {
+                        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(pc, target, "BadgerTrap"))
+                        {
+                            BadgerHoleKillFlag = false;
+                            AlartTarget = byte.MaxValue;
+                            AlartFlag = true;
+                            return;
+                        }
                         //穴開通
                         var NowLocation = target.transform.position;
 
@@ -192,9 +199,17 @@ namespace TownOfHostForE.Roles.Animals
                         new LateTask(() =>
                         {
 
+                            if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(pc, target, "BadgerTrapDelayed"))
+                            {
+                                AlartTarget = byte.MaxValue;
+                                AlartFlag = true;
+                                target.RpcSnapToForced(NowLocation);
+                                SendRPC();
+                                return;
+                            }
                             var playerState = PlayerState.GetByPlayerId(target.PlayerId);
                             playerState.DeathReason = CustomDeathReason.Fall;
-                            target.RpcMurderPlayer(target);
+                            TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(pc, target, () => target.RpcMurderPlayer(target));
                             Utils.KillFlash(pc);
                             BadgerHoleKillCount++;
                             ReportDeadBodyPatch.CanReportByDeadBody[target.PlayerId] = false;

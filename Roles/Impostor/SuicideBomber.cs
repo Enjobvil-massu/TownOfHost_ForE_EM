@@ -110,13 +110,14 @@ namespace TownOfHostForE.Roles.Impostor
                 }
                 else
                 {
+                    if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, target, "SuicideBomber")) continue;
                     PlayerState.GetByPlayerId(target.PlayerId).DeathReason = CustomDeathReason.Bombed;
                     target.SetRealKiller(Player);
-                    target.RpcMurderPlayer(target);
+                    TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, target, () => target.RpcMurderPlayer(target));
                 }
 
                 //自爆魔モードの場合の処理
-                if (suicide)
+                if (suicide && Player.IsAlive())
                 {
                     var totalAlive = Main.AllAlivePlayerControls.Count();
                     //自分が最後の生き残りの場合は勝利のために死なない

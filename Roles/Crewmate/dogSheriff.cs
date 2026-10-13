@@ -261,6 +261,7 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
         // VanillaはHost authority表示なので同じゲーム結果になる。
         SendRPC();
 
+        if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, target, "DogSheriff")) return;
         if (!CanBeKilledBy(target))
         {
             PlayerState.GetByPlayerId(Player.PlayerId).DeathReason = CustomDeathReason.Misfire;
@@ -274,7 +275,7 @@ public sealed class DogSheriff : RoleBase, ISchrodingerCatOwner
             }
         }
         target.SetRealKiller(Player);
-        target.RpcMurderPlayer(target);
+        TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, target, () => target.RpcMurderPlayer(target));
         Utils.MarkEveryoneDirtySettings();
         NowState = nowState.ready;
         ResetCooldownDisplayCache();

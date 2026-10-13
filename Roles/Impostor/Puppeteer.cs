@@ -112,12 +112,13 @@ public sealed class Puppeteer : RoleBase, IImpostor
 
             var min = targetDistance.OrderBy(c => c.Value).FirstOrDefault();//一番値が小さい
             var target = min.Key;
-            var KillRange = NormalGameOptionsV09.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
+            var KillRange = NormalGameOptionsV12.KillDistances[Mathf.Clamp(Main.NormalOptions.KillDistance, 0, 2)];
             if (min.Value <= KillRange && puppet.CanMove && target.CanMove)
             {
                 RPC.PlaySoundRPC(Player.PlayerId, Sounds.KillSound);
+                if (TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.TryReflect(Player, target, "Puppeteer")) { Puppets.Remove(puppet.PlayerId); SendRPC(puppet.PlayerId, 2); return; }
                 target.SetRealKiller(Player);
-                puppet.RpcMurderPlayer(target);
+                TownOfHostForE.Roles.Core.Class.AegisReflectionGuard.RunAttack(Player, target, () => puppet.RpcMurderPlayer(target));
                 Utils.MarkEveryoneDirtySettings();
                 Puppets.Remove(puppet.PlayerId);
                 SendRPC(puppet.PlayerId, 2);
