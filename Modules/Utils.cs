@@ -1188,6 +1188,24 @@ namespace TownOfHostForE
             }
         }
 
+        // STABILITY_R1: Consecutive lobby system messages already restore the
+        // ordinary host name synchronously. Only the final delayed private
+        // display reassert is needed once the message burst ends.
+        private static int vanillaHostModVersionReapplyGeneration;
+
+        public static void QueueVanillaHostModVersionDisplayAfterSystemMessage()
+        {
+            var generation = ++vanillaHostModVersionReapplyGeneration;
+            _ = new LateTask(
+                () =>
+                {
+                    if (generation != vanillaHostModVersionReapplyGeneration) return;
+                    ReapplyVanillaHostModVersionDisplayAfterSystemMessage();
+                },
+                0.24f,
+                "VanillaHostModVersionDisplayAfterSystemMessage");
+        }
+
         public static void ReapplyVanillaHostModVersionDisplayAfterSystemMessage()
         {
             ApplyVanillaHostModVersionDisplay(force: true);
