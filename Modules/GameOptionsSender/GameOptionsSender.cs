@@ -18,6 +18,11 @@ namespace TownOfHostForE.Modules
             [CallerMemberName] string origin = "Unknown")
         {
             AllSenders.RemoveAll(s => !s.AmValid());
+            // STABILITY_R1: A clean pass sent no options before this guard.
+            // Skip diagnostics and redundant Dirty=false assignments without
+            // changing the packets sent on any dirty pass.
+            if (!AllSenders.Exists(sender => sender.IsDirty)) return;
+
             var passId = CriticalStartFlowPacketDiagnostic.BeginGameOptionsPass(
                 origin,
                 AllSenders.Count);
