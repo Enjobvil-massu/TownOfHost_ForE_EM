@@ -103,7 +103,10 @@ public sealed class EvilDyer : RoleBase, IImpostor
         }
 
         Logger.Info($"Stage=DYE_START | Generation={generation} | Duration={duration:0.0} | LivingTargets={count}", nameof(EvilDyer));
-        Utils.NotifyRoles(NoCache: true);
+        // STABILITY_R1: Costume sync above already sends the necessary outfit
+        // RPCs. Only changed nameplates need syncing; avoid force-resending
+        // unchanged names to every Vanilla viewer (O(players^2) RPC burst).
+        Utils.NotifyRoles();
 
         _ = new LateTask(() =>
         {
@@ -131,7 +134,10 @@ public sealed class EvilDyer : RoleBase, IImpostor
         DyedPlayerIds.Clear();
 
         Logger.Info($"Stage=DYE_CLEAR | Generation={generation} | Reason={reason} | LivingTargets={count}", nameof(EvilDyer));
-        Utils.NotifyRoles(NoCache: true);
+        // STABILITY_R1: Costume sync above already sends the necessary outfit
+        // RPCs. Only changed nameplates need syncing; avoid force-resending
+        // unchanged names to every Vanilla viewer (O(players^2) RPC burst).
+        Utils.NotifyRoles();
     }
 
     private static bool NeedsRedBody(PlayerControl target)

@@ -3103,10 +3103,7 @@ namespace TownOfHostForE
             // ロビーのバニラ端末だけへMOD名+Version付きホスト名をforce再適用する。
             if (GameStates.IsLobby && player == PlayerControl.LocalPlayer)
             {
-                _ = new LateTask(
-                    () => Utils.ReapplyVanillaHostModVersionDisplayAfterSystemMessage(),
-                    0.24f,
-                    "VanillaHostModVersionDisplayAfterSystemMessage");
+                Utils.QueueVanillaHostModVersionDisplayAfterSystemMessage();
             }
 
             __instance.timeSinceLastMessage = 0f;
